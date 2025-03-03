@@ -11,13 +11,15 @@
 -spec all() -> [ct_suite:ct_test_def()].
 all() ->
     [
-        {group, ddskerl_std}
+        {group, ddskerl_std},
+        {group, ddskerl_bound}
     ].
 
 -spec groups() -> [ct_suite:ct_group_def()].
 groups() ->
     [
-        {ddskerl_std, tests()}
+        {ddskerl_std, tests()},
+        {ddskerl_bound, tests()}
     ].
 
 -spec tests() -> [atom()].
@@ -54,7 +56,8 @@ get_quantile_test(Config) ->
     Module = proplists:get_value(module, Config),
     Sample = [4, 8],
     RelativeError = 0.02,
-    Sketch = estimate_sketch(Module, Sample, RelativeError),
+    Bound = bucket_size(10, RelativeError),
+    Sketch = estimate_sketch(Module, Sample, RelativeError, Bound),
     Quantile = Module:quantile(Sketch, 0.5),
     ?assert(
         abs(Quantile - 4.0) =< RelativeError * 4.0,
@@ -64,8 +67,9 @@ get_quantile_test(Config) ->
 merge_test(Config) ->
     Module = proplists:get_value(module, Config),
     RelativeError = 0.02,
-    Sketch1 = estimate_sketch(Module, [4], RelativeError),
-    Sketch2 = estimate_sketch(Module, [8], RelativeError),
+    Bound = bucket_size(10, RelativeError),
+    Sketch1 = estimate_sketch(Module, [4], RelativeError, Bound),
+    Sketch2 = estimate_sketch(Module, [8], RelativeError, Bound),
     MergedSketch = Module:merge(Sketch1, Sketch2),
     Quantile = Module:quantile(MergedSketch, 0.5),
     ?assert(
@@ -89,8 +93,9 @@ prop_quantile_error_test(Config) ->
         true ->
             ct:comment("Property check for ~s passed", [Module]);
         [{RelativeError, Sample} | _] ->
-            EstimatedSketch = estimate_sketch(Module, Sample, RelativeError),
-            ActualSketch = calculate_sketch(Module, Sample, RelativeError),
+            Bound = bucket_size(1 + lists:max(Sample), RelativeError),
+            EstimatedSketch = estimate_sketch(Module, Sample, RelativeError, Bound),
+            ActualSketch = calculate_sketch(Module, Sample, RelativeError, Bound),
             Properties = lists:map(
                 fun(Q) ->
                     SketchQuantile = Module:quantile(EstimatedSketch, Q),
@@ -120,8 +125,9 @@ prop_quantile(Module, T) ->
 
 prop(Module, T, RelativeError, Sample) ->
     SampleSize = length(Sample),
-    EstimatedSketch = estimate_sketch(Module, Sample, RelativeError),
-    ActualSketch = calculate_sketch(Module, Sample, RelativeError),
+    Bound = bucket_size(1 + lists:max(Sample), RelativeError),
+    EstimatedSketch = estimate_sketch(Module, Sample, RelativeError, Bound),
+    ActualSketch = calculate_sketch(Module, Sample, RelativeError, Bound),
     lists:all(
         fun(Q) ->
             check_quantile(EstimatedSketch, ActualSketch, Module, RelativeError, SampleSize, Q)
@@ -135,12 +141,12 @@ check_quantile(EstimatedSketch, ActualSketch, Module, RelativeError, SampleSize,
     abs(SketchQuantile - ActualQuantile) =< RelativeError * ActualQuantile andalso
         SampleSize =:= Module:total(EstimatedSketch).
 
-estimate_sketch(Module, Sample, RelativeError) ->
-    Opts = #{error => RelativeError},
+estimate_sketch(Module, Sample, RelativeError, Bound) ->
+    Opts = #{error => RelativeError, bound => Bound},
     Sketch = Module:new(Opts),
     lists:foldl(fun(V, S) -> Module:insert(S, V) end, Sketch, Sample).
 
-calculate_sketch(_, Sample, _) ->
+calculate_sketch(_, Sample, _, _) ->
     Sketch = ddskerl_exact:new(),
     lists:foldl(fun(V, S) -> ddskerl_exact:insert(S, V) end, Sketch, Sample).
 
@@ -154,7 +160,7 @@ bucket_size(Max, Err) ->
     ceil(math:log2(Max) * (1.0 / math:log2((1 + Err) / (1 - Err)))).
 
 %% Non emty list of arbitrarily big positive integers and floats
-sample(ddskerl_std) ->
+sample(Module) when ddskerl_std =:= Module; ddskerl_bound =:= Module ->
     non_empty(list(pos_real())).
 
 quantiles() ->
