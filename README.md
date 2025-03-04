@@ -1,5 +1,5 @@
-[![Hex.pm](https://img.shields.io/hexpm/v/ddskerl.svg?maxAge=2592000?style=plastic)](https://hex.pm/packages/ddskerl)
-[![Hex.pm](https://img.shields.io/hexpm/dt/ddskerl.svg?maxAge=2592000)](https://hex.pm/packages/ddskerl)
+[![Hex.pm](https://img.shields.io/hexpm/v/ddskerl.svg)](https://hex.pm/packages/ddskerl)
+[![Hex.pm](https://img.shields.io/hexpm/dt/ddskerl.svg)](https://hex.pm/packages/ddskerl)
 [![Hex Docs](https://img.shields.io/badge/hex-docs-lightgreen.svg)](https://hexdocs.pm/ddskerl/)
 [![GitHub Actions](https://github.com/NelsonVides/ddskerl/actions/workflows/main.yml/badge.svg)](https://github.com/NelsonVides/ddskerl/actions/workflows/main.yml)
 [![Codecov](https://codecov.io/github/NelsonVides/ddskerl/graph/badge.svg?token=G9HB5UKNIY)](https://codecov.io/github/NelsonVides/ddskerl)
@@ -30,7 +30,7 @@ buckets based on the expected highest value (which if measuring picoseconds the 
 
 For all merge operations, merges are only defined if the sketches are of the same implementation,
 are defined with the same error (and therefore the same gamma), and in the case of bucketed
-solutions (counters and ets), the same bucket size.
+solutions (counters and ets), the same bucket count.
 - `ddskerl_std:merge/2`,
 - `ddskerl_bound:merge/2`,
 - `ddskerl_counters:merge/2`,

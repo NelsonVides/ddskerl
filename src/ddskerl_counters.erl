@@ -23,15 +23,15 @@ values above the expected limit will be inserted into the overflow bucket.
 > All other quantiles, as well as integers, will be tracked with the precision the sketch was
 > configured with.
 
-## Calculating the bucket size
+## Calculating the bucket count
 If you have an expected highest value `M` and a given error `E`,
-your ideal bucket size would be given by the formula:
+your ideal bucket count would be given by the formula:
 `ceil(math:log2(M) * (1.0 / math:log2((1 + E) / (1 - E))))`.
 
 For example, if you measure microseconds and you expect no operation to take more than an hour:
 ```erlang
 1> F = fun(M, E) -> ceil(math:log2(M) * (1.0 / math:log2((1 + E) / (1 - E)))) end.
-2> F(3600000000, 0.01).
+2> F(3_600_000_000, 0.01).
 1101
 ```
 
