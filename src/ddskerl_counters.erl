@@ -53,7 +53,7 @@ If we're measuring picoseconds, this would suffice to measure 107 days.
 > ```
 """).
 
--export([new/1, total/1, insert/2, merge/2, quantile/2]).
+-export([new/1, total/1, insert/2, merge/2, reset/1, quantile/2]).
 
 -record(ddskerl_counters, {
     ref :: counters:counters_ref(),
@@ -109,6 +109,14 @@ new(#{error := Err, bound := Bound}) ->
 -spec total(ddsketch()) -> non_neg_integer().
 total(#ddskerl_counters{ref = Ref}) ->
     counters:get(Ref, ?TOTAL_POS).
+
+?DOC("Reset the DDSketch values to zero").
+-spec reset(ddsketch()) -> ddsketch().
+reset(#ddskerl_counters{ref = Ref, min_max = MinMax, bound = Bound, width = Width} = S) ->
+    [atomics:put(MinMax, Ix, ?MAX_INT) || Ix <- lists:seq(1, Width, 2)],
+    [atomics:put(MinMax, Ix, 0) || Ix <- lists:seq(2, Width, 2)],
+    [counters:put(Ref, Pos, 0) || Pos <- lists:seq(?TOTAL_POS, ?OVERFLOW_POS(Bound))],
+    S.
 
 ?DOC("Insert a value into the DDSketch").
 -spec insert(ddsketch(), Value :: number()) -> ddsketch().

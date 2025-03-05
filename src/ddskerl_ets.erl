@@ -46,7 +46,9 @@ If we're measuring picoseconds, this would suffice to measure 107 days.
 > ```
 """).
 
--export([new/1, total/1, insert/2, insert/3, merge/2, merge/4, quantile/2, quantile/3]).
+-export([
+    new/1, total/1, insert/2, insert/3, merge/2, merge/4, reset/1, reset/2, quantile/2, quantile/3
+]).
 
 -record(ddskerl_ets, {
     ref :: ets:tab(),
@@ -92,16 +94,28 @@ Options for the DDSketch.
 new(#{ets_table := Ref, name := Name, error := Err, bound := Bound}) ->
     Gamma = (1 + Err) / (1 - Err),
     InvLogGamma = 1.0 / math:log2(Gamma),
-    Counters = lists:duplicate(Bound, 0),
-    Header = [Name, Bound, Gamma, InvLogGamma, 0, ?MAX_INT, ?MIN_INT, 0, 0],
-    Object = Header ++ Counters,
-    ets:insert_new(Ref, list_to_tuple(Object)),
+    ets:insert_new(Ref, create_object(Name, Bound, Gamma, InvLogGamma)),
     #ddskerl_ets{ref = Ref, name = Name}.
 
 ?DOC("Get the total number of elements in the DDSketch.").
 -spec total(ddsketch()) -> non_neg_integer().
 total(#ddskerl_ets{ref = Ref, name = Name}) ->
     ets:lookup_element(Ref, Name, ?TOTAL_POS).
+
+?DOC("Reset the DDSketch values to zero").
+-spec reset(ddsketch()) -> ddsketch().
+reset(#ddskerl_ets{ref = Ref, name = Name} = S) ->
+    reset(Ref, Name),
+    S.
+
+?DOC("Reset the DDSketch values to zero").
+-spec reset(ets:tab(), term()) -> ok.
+reset(Ref, Name) ->
+    Gamma = ets:lookup_element(Ref, Name, ?GAMMA_POS),
+    Bound = ets:lookup_element(Ref, Name, ?BOUND_POS),
+    InvLogGamma = ets:lookup_element(Ref, Name, ?INV_LOG_GAMMA_POS),
+    ets:insert(Ref, create_object(Name, Bound, Gamma, InvLogGamma)),
+    ok.
 
 ?DOC("Insert a value into the DDSketch.").
 -spec insert(ddsketch(), number()) -> ddsketch().
@@ -230,6 +244,13 @@ verify_compatible(Ref1, Name1, Ref2, Name2) ->
     Bound = ets:lookup_element(Ref2, Name2, ?BOUND_POS),
     Gamma = ets:lookup_element(Ref1, Name1, ?GAMMA_POS),
     Gamma = ets:lookup_element(Ref2, Name2, ?GAMMA_POS).
+
+-spec create_object(term(), pos_integer(), float(), float()) -> tuple().
+create_object(Name, Bound, Gamma, InvLogGamma) ->
+    Header = [Name, Bound, Gamma, InvLogGamma, 0, ?MAX_INT, ?MIN_INT, 0, 0],
+    Counters = lists:duplicate(Bound, 0),
+    Object = Header ++ Counters,
+    list_to_tuple(Object).
 
 -spec result(number(), non_neg_integer()) -> number().
 result(Gamma, Pos) ->

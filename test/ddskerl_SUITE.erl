@@ -14,7 +14,8 @@ all() ->
         {group, ddskerl_std},
         {group, ddskerl_bound},
         {group, ddskerl_counters},
-        {group, ddskerl_ets}
+        {group, ddskerl_ets},
+        {group, reset_preallocated}
     ].
 
 -spec groups() -> [ct_suite:ct_group_def()].
@@ -23,7 +24,8 @@ groups() ->
         {ddskerl_std, tests()},
         {ddskerl_bound, tests()},
         {ddskerl_counters, tests()},
-        {ddskerl_ets, tests()}
+        {ddskerl_ets, tests()},
+        {reset_preallocated, [reset_counters, reset_ets]}
     ].
 
 -spec tests() -> [atom()].
@@ -54,6 +56,32 @@ init_per_testcase(TestCase, Config) ->
 -spec end_per_testcase(ct_suite:ct_testcase(), ct_suite:ct_config()) -> term().
 end_per_testcase(_TestCase, _Config) ->
     ok.
+
+reset_counters(_Config) ->
+    Sample = [4, 8],
+    RelativeError = 0.01,
+    Bound = bucket_size(10, RelativeError),
+    Sketch = estimate_sketch(ddskerl_counters, Sample, ?FUNCTION_NAME, RelativeError, Bound),
+    ddskerl_counters:reset(Sketch),
+    ?assertEqual(0, ddskerl_counters:total(Sketch)),
+    ddskerl_counters:insert(Sketch, 2),
+    [
+        ?assert(abs(2 - ddskerl_counters:quantile(Sketch, Q)) =< RelativeError, Q)
+     || Q <- quantiles()
+    ].
+
+reset_ets(_Config) ->
+    Sample = [4, 8],
+    RelativeError = 0.01,
+    Bound = bucket_size(10, RelativeError),
+    Sketch = estimate_sketch(ddskerl_ets, Sample, ?FUNCTION_NAME, RelativeError, Bound),
+    ddskerl_ets:reset(Sketch),
+    ?assertEqual(0, ddskerl_ets:total(Sketch)),
+    ddskerl_ets:insert(Sketch, 2),
+    [
+        ?assert(abs(2 - ddskerl_ets:quantile(Sketch, Q)) =< RelativeError, Q)
+     || Q <- quantiles()
+    ].
 
 %% Test cases
 get_quantile_test(Config) ->
