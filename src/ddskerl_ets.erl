@@ -47,7 +47,12 @@ If we're measuring picoseconds, this would suffice to measure 107 days.
 """).
 
 -export([
-    new/1, total/1, insert/2, insert/3, merge/2, merge/4, reset/1, reset/2, quantile/2, quantile/3
+    new/1,
+    total/1, total/2,
+    insert/2, insert/3,
+    merge/2, merge/4,
+    reset/1, reset/2,
+    quantile/2, quantile/3
 ]).
 
 -record(ddskerl_ets, {
@@ -100,6 +105,11 @@ new(#{ets_table := Ref, name := Name, error := Err, bound := Bound}) ->
 ?DOC("Get the total number of elements in the DDSketch.").
 -spec total(ddsketch()) -> non_neg_integer().
 total(#ddskerl_ets{ref = Ref, name = Name}) ->
+    total(Ref, Name).
+
+?DOC("Get the total number of elements in the DDSketch.").
+-spec total(ets:table(), term()) -> non_neg_integer().
+total(Ref, Name) ->
     ets:lookup_element(Ref, Name, ?TOTAL_POS).
 
 ?DOC("Reset the DDSketch values to zero").
