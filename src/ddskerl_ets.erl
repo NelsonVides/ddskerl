@@ -46,6 +46,8 @@ If we're measuring picoseconds, this would suffice to measure 107 days.
 > ```
 """).
 
+-behaviour(ddskerl).
+
 -export([
     new/1,
     total/1, total/2,

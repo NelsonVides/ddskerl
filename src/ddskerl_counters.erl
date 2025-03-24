@@ -53,6 +53,8 @@ If we're measuring picoseconds, this would suffice to measure 107 days.
 > ```
 """).
 
+-behaviour(ddskerl).
+
 -export([new/1, total/1, sum/1, insert/2, merge/2, reset/1, quantile/2]).
 
 -record(ddskerl_counters, {

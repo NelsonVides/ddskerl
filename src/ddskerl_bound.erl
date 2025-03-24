@@ -47,6 +47,8 @@ start_link(Opts) ->
 > ```
 """).
 
+-behaviour(ddskerl).
+
 -export([new/1, total/1, sum/1, insert/2, merge/2, quantile/2]).
 
 -record(ddskerl_bound, {
