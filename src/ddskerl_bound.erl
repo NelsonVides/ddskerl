@@ -82,7 +82,7 @@ new(#{error := Err, bound := Bound}) ->
 total(#ddskerl_bound{total = Total}) ->
     Total.
 
-?DOC("Get the sum number of elements in the DDSketch.").
+?DOC("Get the sum of elements in the DDSketch.").
 -spec sum(ddskerl_bound()) -> number().
 sum(#ddskerl_bound{sum = Sum}) ->
     Sum.
@@ -101,11 +101,11 @@ insert(
     } = S,
     Val
 ) when Val > 0 ->
-    Key = ceil(math:log2(Val) * InvLogGamma),
+    Pos = ceil(math:log2(Val) * InvLogGamma),
     NewData =
-        case gb_trees:is_defined(Key, Data) of
-            true -> gb_trees:update(Key, gb_trees:get(Key, Data) + 1, Data);
-            false -> gb_trees:insert(Key, 1, Data)
+        case gb_trees:is_defined(Pos, Data) of
+            true -> gb_trees:update(Pos, gb_trees:get(Pos, Data) + 1, Data);
+            false -> gb_trees:insert(Pos, 1, Data)
         end,
     case gb_trees:size(NewData) =< Bound of
         true ->
@@ -119,10 +119,10 @@ insert(
         false ->
             % Handle the case where the number of buckets exceeds the limit
             % by collapsing the smallest buckets
-            {_MinKey, Value, TrimmedData} = gb_trees:take_smallest(NewData),
-            {MinKey2, Value2} = gb_trees:smallest(TrimmedData),
+            {_MinPos, Value, TrimmedData} = gb_trees:take_smallest(NewData),
+            {MinPos2, Value2} = gb_trees:smallest(TrimmedData),
             S#ddskerl_bound{
-                data = gb_trees:update(MinKey2, Value + Value2, TrimmedData),
+                data = gb_trees:update(MinPos2, Value + Value2, TrimmedData),
                 total = Total + 1,
                 sum = Sum + Val,
                 min = min(Min, Val),
@@ -139,27 +139,27 @@ quantile(#ddskerl_bound{max = Max}, 1.0) ->
 quantile(#ddskerl_bound{data = Data, total = Total, gamma = Gamma}, Quantile) when
     0.0 < Quantile, Quantile < 1.0
 ->
-    AccumulatedRank = 0,
+    AccRank = 0,
     TotalQuantile = Total * Quantile,
-    case TotalQuantile =< AccumulatedRank of
+    case TotalQuantile =< AccRank of
         true ->
             result(Gamma, 0);
         false ->
             get_quantile(
-                Data, TotalQuantile, AccumulatedRank, gb_trees:next(gb_trees:iterator(Data)), Gamma
+                Data, Gamma, TotalQuantile, AccRank, gb_trees:next(gb_trees:iterator(Data))
             )
     end.
 
-get_quantile(_, _, _, none, _) ->
+get_quantile(_, _, _, _, none) ->
     % Should not happen if Total > 0
     undefined;
-get_quantile(Data, TotalQuantile, AccumulatedRank, {Key, Count, NextIter}, Gamma) ->
-    NewAccumulatedRank = AccumulatedRank + Count,
-    case TotalQuantile =< NewAccumulatedRank of
+get_quantile(Data, Gamma, TotalQuantile, AccRank, {Pos, Count, NextIter}) ->
+    NewAccRank = AccRank + Count,
+    case TotalQuantile =< NewAccRank of
         true ->
             result(Gamma, Pos);
         false ->
-            get_quantile(Data, TotalQuantile, NewAccumulatedRank, gb_trees:next(NextIter), Gamma)
+            get_quantile(Data, Gamma, TotalQuantile, NewAccRank, gb_trees:next(NextIter))
     end.
 
 ?DOC("Merge two DDSketch instances.").
@@ -189,11 +189,11 @@ merge_trees(Data1, Data2) ->
 
 do_merge_trees(Data, none) ->
     Data;
-do_merge_trees(Data, {Key, Count, NextIter}) ->
+do_merge_trees(Data, {Pos, Count, NextIter}) ->
     NewData =
-        case gb_trees:is_defined(Key, Data) of
-            true -> gb_trees:update(Key, gb_trees:get(Key, Data) + Count, Data);
-            false -> gb_trees:insert(Key, Count, Data)
+        case gb_trees:is_defined(Pos, Data) of
+            true -> gb_trees:update(Pos, gb_trees:get(Pos, Data) + Count, Data);
+            false -> gb_trees:insert(Pos, Count, Data)
         end,
     do_merge_trees(NewData, gb_trees:next(NextIter)).
 
@@ -202,13 +202,14 @@ trim_to_max_buckets(Data, Bound) ->
         true ->
             Data;
         false ->
-            {_MinKey, Value, TrimmedData} = gb_trees:take_smallest(Data),
-            {MinKey2, Value2} = gb_trees:smallest(TrimmedData),
-            CollapsedOneBucket = gb_trees:update(MinKey2, Value + Value2, TrimmedData),
+            {_MinPos, Value, TrimmedData} = gb_trees:take_smallest(Data),
+            {MinPos2, Value2} = gb_trees:smallest(TrimmedData),
+            CollapsedOneBucket = gb_trees:update(MinPos2, Value + Value2, TrimmedData),
             trim_to_max_buckets(CollapsedOneBucket, Bound)
     end.
 
--spec result(number(), non_neg_integer()) -> number().
+-compile({inline, [result/2]}).
+-spec result(number(), non_neg_integer()) -> float().
 result(_, 0) ->
     0.0;
 result(Gamma, Pos) ->

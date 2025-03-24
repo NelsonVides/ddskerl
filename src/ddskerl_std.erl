@@ -155,7 +155,8 @@ merge(
         max = max(Max1, Max2)
     }.
 
--spec result(number(), non_neg_integer()) -> number().
+-compile({inline, [result/2]}).
+-spec result(number(), non_neg_integer()) -> float().
 result(_, 0) ->
     0.0;
 result(Gamma, Pos) ->
