@@ -74,6 +74,7 @@ If we're measuring picoseconds, this would suffice to measure 107 days.
 -define(SUM_POS, 2).
 -define(UNDERFLOW_POS, 3).
 -define(EXTRA_KEYS, 4).
+-define(PREFIX, 3).
 -define(OVERFLOW_POS(Bound), ?EXTRA_KEYS + Bound).
 -define(MAX_INT, (1 bsl 64 - 1)).
 
@@ -203,28 +204,29 @@ quantile(#ddskerl_counters{ref = Ref, bound = Bound, gamma = Gamma}, Quantile) w
     0 < Quantile, Quantile < 1
 ->
     Total = counters:get(Ref, ?TOTAL_POS),
-    AccumulatedRank = counters:get(Ref, ?UNDERFLOW_POS),
+    AccRank = counters:get(Ref, ?UNDERFLOW_POS),
     TotalQuantile = Total * Quantile,
-    case TotalQuantile =< AccumulatedRank of
-        true ->
-            result(Gamma, -?MAX_INT);
-        false ->
-            get_quantile(
-                Ref, TotalQuantile, Gamma, AccumulatedRank, ?EXTRA_KEYS, ?OVERFLOW_POS(Bound) + 1
-            )
-    end.
+    ToIndex = ?OVERFLOW_POS(Bound) + 1,
+    get_quantile(Ref, Gamma, TotalQuantile, AccRank, ?PREFIX, ToIndex).
 
+-spec get_quantile(
+    counters:counters_ref(),
+    float(),
+    float(),
+    non_neg_integer(),
+    non_neg_integer(),
+    non_neg_integer()
+) ->
+    float() | undefined.
 get_quantile(_, _, _, _, End, End) ->
     undefined;
-get_quantile(Ref, TotalQuantile, Gamma, AccumulatedRank, Pos, OverflowPos) ->
-    Value = counters:get(Ref, Pos),
-    NewAccumulatedRank = AccumulatedRank + Value,
-    case TotalQuantile =< NewAccumulatedRank of
-        true ->
-            result(Gamma, Pos - ?UNDERFLOW_POS);
-        false ->
-            get_quantile(Ref, TotalQuantile, Gamma, NewAccumulatedRank, Pos + 1, OverflowPos)
-    end.
+get_quantile(_, Gamma, TotalQuantile, AccRank, Pos, _) when TotalQuantile =< AccRank ->
+    result(Gamma, Pos - ?PREFIX);
+get_quantile(Ref, Gamma, TotalQuantile, AccRank, Pos, OverflowPos) ->
+    NewPos = Pos + 1,
+    Value = counters:get(Ref, NewPos),
+    NewAccRank = AccRank + Value,
+    get_quantile(Ref, Gamma, TotalQuantile, NewAccRank, NewPos, OverflowPos).
 
 ?DOC("Merge two DDSketch instances").
 -spec merge(ddsketch(), ddsketch()) -> ddsketch().
@@ -264,6 +266,7 @@ add_counters(Ref1, Ref2, Size, Pos) ->
     counters:add(Ref1, Pos, Value2),
     add_counters(Ref1, Ref2, Size, Pos + 1).
 
+-compile({inline, [result/2]}).
 -spec result(number(), non_neg_integer()) -> number().
 result(_, 0) ->
     0.0;

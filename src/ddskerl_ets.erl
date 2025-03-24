@@ -201,28 +201,24 @@ quantile(Ref, Name, Quantile) when
     [Element] = ets:lookup(Ref, Name),
     Gamma = element(?GAMMA_POS, Element),
     Total = element(?TOTAL_POS, Element),
-    AccumulatedRank = element(?UNDERFLOW_POS, Element),
+    AccRank = element(?UNDERFLOW_POS, Element),
     TotalQuantile = Total * Quantile,
-    case TotalQuantile =< AccumulatedRank of
-        true ->
-            result(Gamma, -?MAX_INT);
-        false ->
-            get_quantile(
-                Element, TotalQuantile, Gamma, AccumulatedRank, ?PREFIX + 1, tuple_size(Element) + 2
-            )
-    end.
+    ToIndex = tuple_size(Element) + 2,
+    get_quantile(Element, Gamma, TotalQuantile, AccRank, ?PREFIX, ToIndex).
 
+-spec get_quantile(
+    object(), float(), float(), non_neg_integer(), non_neg_integer(), non_neg_integer()
+) ->
+    float() | undefined.
 get_quantile(_, _, _, _, OverEnd, OverEnd) ->
     undefined;
-get_quantile(Element, TotalQuantile, Gamma, AccumulatedRank, Pos, OverflowPos) ->
-    Value = element(Pos, Element),
-    NewAccumulatedRank = AccumulatedRank + Value,
-    case TotalQuantile =< NewAccumulatedRank of
-        true ->
-            result(Gamma, Pos - ?PREFIX);
-        false ->
-            get_quantile(Element, TotalQuantile, Gamma, NewAccumulatedRank, Pos + 1, OverflowPos)
-    end.
+get_quantile(_, Gamma, TotalQuantile, AccRank, Pos, _) when TotalQuantile =< AccRank ->
+    result(Gamma, Pos - ?PREFIX);
+get_quantile(Element, Gamma, TotalQuantile, AccRank, Pos, OverflowPos) ->
+    NewPos = Pos + 1,
+    Value = element(NewPos, Element),
+    NewAccRank = AccRank + Value,
+    get_quantile(Element, Gamma, TotalQuantile, NewAccRank, NewPos, OverflowPos).
 
 ?DOC("Merge two DDSketch instances.").
 -spec merge(ddsketch(), ddsketch()) -> ddsketch().
@@ -282,6 +278,7 @@ create_object(Name, Bound, Gamma, InvLogGamma) ->
     Object = Header ++ Counters,
     list_to_tuple(Object).
 
+-compile({inline, [result/2]}).
 -spec result(number(), integer()) -> number().
 result(_, 0) ->
     0.0;
