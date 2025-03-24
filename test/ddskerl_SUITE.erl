@@ -142,12 +142,12 @@ prop_quantile_error_test(Config) ->
             ct:comment("Property check for ~s passed", [Module]);
         [{RelativeError, Sample} | _] ->
             Bound = bucket_size(1 + lists:max(Sample), RelativeError),
-            EstimatedSketch = estimate_sketch(Module, Sample, ?FUNCTION_NAME, RelativeError, Bound),
-            ActualSketch = calculate_sketch(Module, Sample, RelativeError, Bound),
+            Sketch = estimate_sketch(Module, Sample, ?FUNCTION_NAME, RelativeError, Bound),
+            Summary = calculate_summary(Module, Sample, RelativeError, Bound),
             Properties = lists:map(
                 fun(Q) ->
-                    SketchQuantile = Module:quantile(EstimatedSketch, Q),
-                    ActualQuantile = ddskerl_exact:quantile(ActualSketch, Q),
+                    SketchQuantile = Module:quantile(Sketch, Q),
+                    ActualQuantile = ddskerl_exact:quantile(Summary, Q),
                     Property =
                         abs(SketchQuantile / ActualQuantile - 1) =< RelativeError,
                     {Q, SketchQuantile, ActualQuantile, Property}
@@ -155,7 +155,7 @@ prop_quantile_error_test(Config) ->
                 quantiles()
             ),
             Format = "-properties: ~w~n-sketch: ~p~n-sample: ~p~n",
-            Values = [Properties, EstimatedSketch, Sample],
+            Values = [Properties, Sketch, Sample],
             ct:pal(Format, Values),
             ct:fail(
                 "Failed with relative error ~p and sample size ~B, see logs for more details",
@@ -174,27 +174,37 @@ prop_quantile(Module, T) ->
 prop(Module, T, RelativeError, Sample) ->
     SampleSize = length(Sample),
     Bound = bucket_size(1 + lists:max(Sample), RelativeError),
-    EstimatedSketch = estimate_sketch(Module, Sample, T, RelativeError, Bound),
-    ActualSketch = calculate_sketch(Module, Sample, RelativeError, Bound),
+    Sketch = estimate_sketch(Module, Sample, T, RelativeError, Bound),
+    Summary = calculate_summary(Module, Sample, RelativeError, Bound),
     lists:all(
         fun(Q) ->
-            check_quantile(EstimatedSketch, ActualSketch, Module, RelativeError, SampleSize, Q)
+            check_quantile(Sketch, Summary, Module, RelativeError, SampleSize, Q) andalso
+                check_totals(Sketch, Summary, Module) andalso
+                check_sums(Sketch, Summary, Module, RelativeError)
         end,
         quantiles()
     ).
 
-check_quantile(EstimatedSketch, ActualSketch, Module, RelativeError, SampleSize, Q) ->
-    SketchQuantile = Module:quantile(EstimatedSketch, Q),
-    ActualQuantile = ddskerl_exact:quantile(ActualSketch, Q),
+check_totals(Sketch, Summary, Module) ->
+    Module:total(Sketch) =:= ddskerl_exact:total(Summary).
+
+check_sums(Sketch, Summary, Module, RelativeError) ->
+    ExactSum = ddskerl_exact:sum(Summary),
+    EstimatedSum = Module:sum(Sketch),
+    abs(EstimatedSum - ExactSum) =< RelativeError * ExactSum.
+
+check_quantile(Sketch, Summary, Module, RelativeError, SampleSize, Q) ->
+    SketchQuantile = Module:quantile(Sketch, Q),
+    ActualQuantile = ddskerl_exact:quantile(Summary, Q),
     abs(SketchQuantile - ActualQuantile) =< RelativeError * ActualQuantile andalso
-        SampleSize =:= Module:total(EstimatedSketch).
+        SampleSize =:= Module:total(Sketch).
 
 estimate_sketch(Module, Sample, T, RelativeError, Bound) ->
     Opts = #{ets_table => T, name => make_ref(), error => RelativeError, bound => Bound},
     Sketch = Module:new(Opts),
     lists:foldl(fun(V, S) -> Module:insert(S, V) end, Sketch, Sample).
 
-calculate_sketch(_, Sample, _, _) ->
+calculate_summary(_, Sample, _, _) ->
     Sketch = ddskerl_exact:new(),
     lists:foldl(fun(V, S) -> ddskerl_exact:insert(S, V) end, Sketch, Sample).
 
