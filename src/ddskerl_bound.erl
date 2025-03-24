@@ -139,8 +139,16 @@ quantile(#ddskerl_bound{max = Max}, 1.0) ->
 quantile(#ddskerl_bound{data = Data, total = Total, gamma = Gamma}, Quantile) when
     0.0 < Quantile, Quantile < 1.0
 ->
+    AccumulatedRank = 0,
     TotalQuantile = Total * Quantile,
-    get_quantile(Data, TotalQuantile, 0, gb_trees:next(gb_trees:iterator(Data)), Gamma).
+    case TotalQuantile =< AccumulatedRank of
+        true ->
+            result(Gamma, 0);
+        false ->
+            get_quantile(
+                Data, TotalQuantile, AccumulatedRank, gb_trees:next(gb_trees:iterator(Data)), Gamma
+            )
+    end.
 
 get_quantile(_, _, _, none, _) ->
     % Should not happen if Total > 0
@@ -149,7 +157,7 @@ get_quantile(Data, TotalQuantile, AccumulatedRank, {Key, Count, NextIter}, Gamma
     NewAccumulatedRank = AccumulatedRank + Count,
     case TotalQuantile =< NewAccumulatedRank of
         true ->
-            2 * math:pow(Gamma, Key) / (Gamma + 1);
+            result(Gamma, Pos);
         false ->
             get_quantile(Data, TotalQuantile, NewAccumulatedRank, gb_trees:next(NextIter), Gamma)
     end.
@@ -199,3 +207,9 @@ trim_to_max_buckets(Data, Bound) ->
             CollapsedOneBucket = gb_trees:update(MinKey2, Value + Value2, TrimmedData),
             trim_to_max_buckets(CollapsedOneBucket, Bound)
     end.
+
+-spec result(number(), non_neg_integer()) -> number().
+result(_, 0) ->
+    0.0;
+result(Gamma, Pos) ->
+    2 * math:pow(Gamma, Pos) / (Gamma + 1).

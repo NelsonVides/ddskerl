@@ -108,8 +108,17 @@ quantile(#ddskerl_std{max = Max}, 1.0) ->
 quantile(#ddskerl_std{data = Data, gamma = Gamma, total = Total}, Quantile) when
     0.0 < Quantile, Quantile < 1.0
 ->
+    AccumulatedRank = 0,
     TotalQuantile = Total * Quantile,
-    SortedData = lists:sort(fun({Key1, _}, {Key2, _}) -> Key1 =< Key2 end, maps:to_list(Data)),
+    case TotalQuantile =< AccumulatedRank of
+        true ->
+            result(Gamma, 0);
+        false ->
+            get_quantile(Data, TotalQuantile, AccumulatedRank, Data, Gamma)
+    end.
+
+get_quantile(Data, TotalQuantile, AccumulatedRank, Data, Gamma) ->
+    SortedData = lists:sort(fun({Pos1, _}, {Pos2, _}) -> Pos1 =< Pos2 end, maps:to_list(Data)),
     try
         lists:foldl(
             fun({Pos, Val}, Acc) ->
@@ -121,14 +130,14 @@ quantile(#ddskerl_std{data = Data, gamma = Gamma, total = Total}, Quantile) when
                         NewAccumulatedRank
                 end
             end,
-            0,
+            AccumulatedRank,
             SortedData
         )
     of
         _ -> undefined
     catch
         throw:{found, Pos} ->
-            2 * math:pow(Gamma, Pos) / (Gamma + 1)
+            result(Gamma, Pos)
     end.
 
 ?DOC("Merge two DDSketch instances.").
@@ -145,3 +154,9 @@ merge(
         min = min(Min1, Min2),
         max = max(Max1, Max2)
     }.
+
+-spec result(number(), non_neg_integer()) -> number().
+result(_, 0) ->
+    0.0;
+result(Gamma, Pos) ->
+    2 * math:pow(Gamma, Pos) / (Gamma + 1).

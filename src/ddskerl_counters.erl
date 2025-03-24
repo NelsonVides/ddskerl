@@ -203,9 +203,16 @@ quantile(#ddskerl_counters{ref = Ref, bound = Bound, gamma = Gamma}, Quantile) w
     0 < Quantile, Quantile < 1
 ->
     Total = counters:get(Ref, ?TOTAL_POS),
-    TotalQuantile = Total * Quantile,
     AccumulatedRank = counters:get(Ref, ?UNDERFLOW_POS),
-    get_quantile(Ref, TotalQuantile, Gamma, AccumulatedRank, ?EXTRA_KEYS, ?OVERFLOW_POS(Bound) + 1).
+    TotalQuantile = Total * Quantile,
+    case TotalQuantile =< AccumulatedRank of
+        true ->
+            result(Gamma, -?MAX_INT);
+        false ->
+            get_quantile(
+                Ref, TotalQuantile, Gamma, AccumulatedRank, ?EXTRA_KEYS, ?OVERFLOW_POS(Bound) + 1
+            )
+    end.
 
 get_quantile(_, _, _, _, End, End) ->
     undefined;
@@ -258,5 +265,7 @@ add_counters(Ref1, Ref2, Size, Pos) ->
     add_counters(Ref1, Ref2, Size, Pos + 1).
 
 -spec result(number(), non_neg_integer()) -> number().
+result(_, 0) ->
+    0.0;
 result(Gamma, Pos) ->
     2 * math:pow(Gamma, Pos) / (Gamma + 1).

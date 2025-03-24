@@ -196,19 +196,17 @@ quantile(Ref, Name, Quantile) when
     Total = element(?TOTAL_POS, Element),
     AccumulatedRank = element(?UNDERFLOW_POS, Element),
     TotalQuantile = Total * Quantile,
-    get_quantile(
-        Element, TotalQuantile, Gamma, AccumulatedRank, ?PREFIX + 1, tuple_size(Element) + 1
-    ).
-
-get_quantile(Element, TotalQuantile, Gamma, AccumulatedRank, End, End) ->
-    Value = element(End, Element),
-    NewAccumulatedRank = AccumulatedRank + Value,
-    case TotalQuantile =< NewAccumulatedRank of
+    case TotalQuantile =< AccumulatedRank of
         true ->
-            result(Gamma, End - ?PREFIX);
+            result(Gamma, -?MAX_INT);
         false ->
-            undefined
-    end;
+            get_quantile(
+                Element, TotalQuantile, Gamma, AccumulatedRank, ?PREFIX + 1, tuple_size(Element) + 2
+            )
+    end.
+
+get_quantile(_, _, _, _, OverEnd, OverEnd) ->
+    undefined;
 get_quantile(Element, TotalQuantile, Gamma, AccumulatedRank, Pos, OverflowPos) ->
     Value = element(Pos, Element),
     NewAccumulatedRank = AccumulatedRank + Value,
@@ -277,6 +275,8 @@ create_object(Name, Bound, Gamma, InvLogGamma) ->
     Object = Header ++ Counters,
     list_to_tuple(Object).
 
--spec result(number(), non_neg_integer()) -> number().
+-spec result(number(), integer()) -> number().
+result(_, 0) ->
+    0.0;
 result(Gamma, Pos) ->
     2 * math:pow(Gamma, Pos) / (Gamma + 1).
