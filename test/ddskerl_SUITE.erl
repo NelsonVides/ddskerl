@@ -30,7 +30,7 @@ groups() ->
 
 -spec tests() -> [atom()].
 tests() ->
-    [get_quantile_test, merge_test, prop_quantile_error_test].
+    [get_quantile_test, sum_test, merge_test, prop_quantile_error_test].
 
 -spec init_per_suite(ct_suite:ct_config()) -> ct_suite:ct_config().
 init_per_suite(Config) ->
@@ -108,6 +108,14 @@ merge_test(Config) ->
         abs(Quantile - 4.0) =< RelativeError * 4.0,
         #{sketch_one => Sketch1, sketch_two => Sketch2}
     ).
+
+sum_test(Config) ->
+    Module = proplists:get_value(module, Config),
+    RelativeError = 0.02,
+    Bound = bucket_size(10, RelativeError),
+    Sketch = estimate_sketch(Module, lists:seq(1, 100), ?FUNCTION_NAME, RelativeError, Bound),
+    Sum = Module:sum(Sketch),
+    ?assertEqual(5050, Sum, #{sketch => Sketch, sum => Sum}).
 
 %% Run the property-based test
 prop_quantile_error_test(Config) ->

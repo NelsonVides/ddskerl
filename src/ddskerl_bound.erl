@@ -47,13 +47,14 @@ start_link(Opts) ->
 > ```
 """).
 
--export([new/1, total/1, insert/2, merge/2, quantile/2]).
+-export([new/1, total/1, sum/1, insert/2, merge/2, quantile/2]).
 
 -record(ddskerl_bound, {
     data = gb_trees:empty() :: gb_trees:tree(non_neg_integer(), non_neg_integer()),
     total = 0 :: non_neg_integer(),
     min :: undefined | number(),
     max = 0 :: number(),
+    sum = 0 :: number(),
     bound :: non_neg_integer(),
     gamma :: float(),
     inv_log_gamma :: float()
@@ -79,11 +80,22 @@ new(#{error := Err, bound := Bound}) ->
 total(#ddskerl_bound{total = Total}) ->
     Total.
 
+?DOC("Get the sum number of elements in the DDSketch.").
+-spec sum(ddskerl_bound()) -> number().
+sum(#ddskerl_bound{sum = Sum}) ->
+    Sum.
+
 ?DOC("Insert a value into the DDSketch.").
 -spec insert(ddskerl_bound(), number()) -> ddskerl_bound().
 insert(
     #ddskerl_bound{
-        data = Data, total = Total, min = Min, max = Max, inv_log_gamma = InvLogGamma, bound = Bound
+        data = Data,
+        total = Total,
+        sum = Sum,
+        min = Min,
+        max = Max,
+        inv_log_gamma = InvLogGamma,
+        bound = Bound
     } = S,
     Val
 ) when Val > 0 ->
@@ -96,7 +108,11 @@ insert(
     case gb_trees:size(NewData) =< Bound of
         true ->
             S#ddskerl_bound{
-                data = NewData, total = Total + 1, min = min(Min, Val), max = max(Max, Val)
+                data = NewData,
+                total = Total + 1,
+                sum = Sum + Val,
+                min = min(Min, Val),
+                max = max(Max, Val)
             };
         false ->
             % Handle the case where the number of buckets exceeds the limit
@@ -106,6 +122,7 @@ insert(
             S#ddskerl_bound{
                 data = gb_trees:update(MinKey2, Value + Value2, TrimmedData),
                 total = Total + 1,
+                sum = Sum + Val,
                 min = min(Min, Val),
                 max = max(Max, Val)
             }
@@ -138,15 +155,20 @@ get_quantile(Data, TotalQuantile, AccumulatedRank, {Key, Count, NextIter}, Gamma
 ?DOC("Merge two DDSketch instances.").
 -spec merge(ddskerl_bound(), ddskerl_bound()) -> ddskerl_bound().
 merge(
-    #ddskerl_bound{data = Data1, total = Total1, bound = Bound, gamma = G, min = Min1, max = Max1} =
+    #ddskerl_bound{
+        data = Data1, total = Total1, sum = Sum1, bound = Bound, gamma = G, min = Min1, max = Max1
+    } =
         S1,
-    #ddskerl_bound{data = Data2, total = Total2, bound = Bound, gamma = G, min = Min2, max = Max2}
+    #ddskerl_bound{
+        data = Data2, total = Total2, sum = Sum2, bound = Bound, gamma = G, min = Min2, max = Max2
+    }
 ) ->
     MergedData = merge_trees(Data1, Data2),
     FinalData = trim_to_max_buckets(MergedData, Bound),
     S1#ddskerl_bound{
         data = FinalData,
         total = Total1 + Total2,
+        sum = Sum1 + Sum2,
         min = min(Min1, Min2),
         max = max(Max1, Max2)
     }.

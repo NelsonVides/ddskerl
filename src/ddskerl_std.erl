@@ -44,10 +44,12 @@ start_link(Opts) ->
 > ```
 """).
 
--export([new/1, total/1, insert/2, merge/2, quantile/2]).
+-export([new/1, total/1, sum/1, insert/2, merge/2, quantile/2]).
+
 -record(ddskerl_std, {
     data = #{} :: #{non_neg_integer() => non_neg_integer()},
     total = 0 :: non_neg_integer(),
+    sum = 0 :: number(),
     min :: undefined | number(),
     max = 0 :: number(),
     gamma :: float(),
@@ -74,17 +76,26 @@ new(#{error := Err}) ->
 total(#ddskerl_std{total = Total}) ->
     Total.
 
+?DOC("Get the sum of elements in the DDSketch.").
+-spec sum(ddsketch()) -> number().
+sum(#ddskerl_std{sum = Sum}) ->
+    Sum.
+
 ?DOC("Insert a value into the DDSketch.").
 -spec insert(ddsketch(), number()) -> ddsketch().
 insert(
-    #ddskerl_std{data = Data, total = Total, min = Min, max = Max, inv_log_gamma = InvLogGamma} = S,
+    #ddskerl_std{
+        data = Data, total = Total, sum = Sum, min = Min, max = Max, inv_log_gamma = InvLogGamma
+    } = S,
     Val
 ) when
     Val > 0
 ->
     Bin = ceil(math:log2(Val) * InvLogGamma),
     NewData = maps:update_with(Bin, fun(X) -> X + 1 end, 1, Data),
-    S#ddskerl_std{data = NewData, total = Total + 1, min = min(Min, Val), max = max(Max, Val)}.
+    S#ddskerl_std{
+        data = NewData, total = Total + 1, sum = Sum + Val, min = min(Min, Val), max = max(Max, Val)
+    }.
 
 ?DOC("Calculate the quantile of a DDSketch.").
 -spec quantile(ddsketch(), float()) -> float() | undefined.
@@ -121,13 +132,14 @@ quantile(#ddskerl_std{data = Data, gamma = Gamma, total = Total}, Quantile) when
 ?DOC("Merge two DDSketch instances.").
 -spec merge(ddsketch(), ddsketch()) -> ddsketch().
 merge(
-    #ddskerl_std{gamma = G, data = Data1, total = Total1, min = Min1, max = Max1} = S1,
-    #ddskerl_std{gamma = G, data = Data2, total = Total2, min = Min2, max = Max2}
+    #ddskerl_std{gamma = G, data = Data1, total = Total1, sum = Sum1, min = Min1, max = Max1} = S1,
+    #ddskerl_std{gamma = G, data = Data2, total = Total2, sum = Sum2, min = Min2, max = Max2}
 ) ->
     Data = maps:merge_with(fun(_K, Val1, Val2) -> Val1 + Val2 end, Data1, Data2),
     S1#ddskerl_std{
         data = Data,
         total = Total1 + Total2,
+        sum = Sum1 + Sum2,
         min = min(Min1, Min2),
         max = max(Max1, Max2)
     }.

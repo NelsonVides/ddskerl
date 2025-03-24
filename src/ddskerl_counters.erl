@@ -53,7 +53,7 @@ If we're measuring picoseconds, this would suffice to measure 107 days.
 > ```
 """).
 
--export([new/1, total/1, insert/2, merge/2, reset/1, quantile/2]).
+-export([new/1, total/1, sum/1, insert/2, merge/2, reset/1, quantile/2]).
 
 -record(ddskerl_counters, {
     ref :: counters:counters_ref(),
@@ -69,8 +69,9 @@ If we're measuring picoseconds, this would suffice to measure 107 days.
 %% - in between we find all the buckets
 %% - overflow of values that escape the summary above the maximum bucket
 -define(TOTAL_POS, 1).
--define(UNDERFLOW_POS, 2).
--define(EXTRA_KEYS, 3).
+-define(SUM_POS, 2).
+-define(UNDERFLOW_POS, 3).
+-define(EXTRA_KEYS, 4).
 -define(OVERFLOW_POS(Bound), ?EXTRA_KEYS + Bound).
 -define(MAX_INT, (1 bsl 64 - 1)).
 
@@ -110,6 +111,11 @@ new(#{error := Err, bound := Bound}) ->
 total(#ddskerl_counters{ref = Ref}) ->
     counters:get(Ref, ?TOTAL_POS).
 
+?DOC("Get the sum of elements in the DDSketch").
+-spec sum(ddsketch()) -> non_neg_integer().
+sum(#ddskerl_counters{ref = Ref}) ->
+    counters:get(Ref, ?SUM_POS).
+
 ?DOC("Reset the DDSketch values to zero").
 -spec reset(ddsketch()) -> ddsketch().
 reset(#ddskerl_counters{ref = Ref, min_max = MinMax, bound = Bound, width = Width} = S) ->
@@ -123,7 +129,7 @@ reset(#ddskerl_counters{ref = Ref, min_max = MinMax, bound = Bound, width = Widt
 insert(#ddskerl_counters{ref = Ref, min_max = MinMax} = S, Val) when 0 < Val, Val =< 1 ->
     counters:add(Ref, ?TOTAL_POS, 1),
     counters:add(Ref, ?UNDERFLOW_POS, 1),
-    update_min_max(MinMax, round(Val), erlang:system_info(scheduler_id)),
+    update_min_max_sum(Ref, MinMax, round(Val), erlang:system_info(scheduler_id)),
     S;
 insert(
     #ddskerl_counters{ref = Ref, min_max = MinMax, bound = Bound, inv_log_gamma = InvLogGamma} = S,
@@ -133,7 +139,7 @@ insert(
 ->
     Key = ceil(math:log2(Val) * InvLogGamma),
     counters:add(Ref, ?TOTAL_POS, 1),
-    update_min_max(MinMax, round(Val), erlang:system_info(scheduler_id)),
+    update_min_max_sum(Ref, MinMax, round(Val), erlang:system_info(scheduler_id)),
     case Key =< Bound of
         true ->
             counters:add(Ref, ?UNDERFLOW_POS + Key, 1);
@@ -142,8 +148,11 @@ insert(
     end,
     S.
 
--spec update_min_max(atomics:atomics_ref(), non_neg_integer(), non_neg_integer()) -> ok.
-update_min_max(MinMax, Value, SchedulerId) ->
+-spec update_min_max_sum(
+    counters:counters_ref(), atomics:atomics_ref(), non_neg_integer(), non_neg_integer()
+) -> ok.
+update_min_max_sum(Ref, MinMax, Value, SchedulerId) ->
+    counters:add(Ref, ?SUM_POS, Value),
     MinIndex = 2 * SchedulerId - 1,
     MaxIndex = 2 * SchedulerId,
     Min = atomics:get(MinMax, MinIndex),

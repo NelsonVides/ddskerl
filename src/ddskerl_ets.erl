@@ -49,6 +49,7 @@ If we're measuring picoseconds, this would suffice to measure 107 days.
 -export([
     new/1,
     total/1, total/2,
+    sum/1, sum/2,
     insert/2, insert/3,
     merge/2, merge/4,
     reset/1, reset/2,
@@ -68,11 +69,12 @@ If we're measuring picoseconds, this would suffice to measure 107 days.
 -define(GAMMA_POS, 3).
 -define(INV_LOG_GAMMA_POS, 4).
 -define(TOTAL_POS, 5).
--define(MIN_POS, 6).
--define(MAX_POS, 7).
--define(OVERFLOW_POS, 8).
--define(UNDERFLOW_POS, 9).
--define(PREFIX, 9).
+-define(SUM_POS, 6).
+-define(MIN_POS, 7).
+-define(MAX_POS, 8).
+-define(OVERFLOW_POS, 9).
+-define(UNDERFLOW_POS, 10).
+-define(PREFIX, 10).
 -define(MIN_INT, (0)).
 -define(MAX_INT, (1 bsl 64 - 1)).
 
@@ -112,6 +114,16 @@ total(#ddskerl_ets{ref = Ref, name = Name}) ->
 total(Ref, Name) ->
     ets:lookup_element(Ref, Name, ?TOTAL_POS).
 
+?DOC("Get the sum of elements in the DDSketch.").
+-spec sum(ddsketch()) -> non_neg_integer().
+sum(#ddskerl_ets{ref = Ref, name = Name}) ->
+    sum(Ref, Name).
+
+?DOC("Get the sum of elements in the DDSketch.").
+-spec sum(ets:table(), term()) -> non_neg_integer().
+sum(Ref, Name) ->
+    ets:lookup_element(Ref, Name, ?SUM_POS).
+
 ?DOC("Reset the DDSketch values to zero").
 -spec reset(ddsketch()) -> ddsketch().
 reset(#ddskerl_ets{ref = Ref, name = Name} = S) ->
@@ -137,15 +149,15 @@ insert(#ddskerl_ets{ref = Ref, name = Name} = S, Val) ->
 -spec insert(ets:tab(), term(), number()) -> any().
 insert(Ref, Name, Val) when 0 < Val, Val =< 1 ->
     Spec = [{?TOTAL_POS, 1}, {?UNDERFLOW_POS, 1}],
-    ets:update_counter(Ref, Name, Spec),
-    update_min_max(Ref, Name, Val);
+    update_min_max_sum(Ref, Name, Val),
+    ets:update_counter(Ref, Name, Spec);
 insert(Ref, Name, Val) when
     1 < Val
 ->
     Bound = ets:lookup_element(Ref, Name, ?BOUND_POS),
     InvLogGamma = ets:lookup_element(Ref, Name, ?INV_LOG_GAMMA_POS),
     Key = ceil(math:log2(Val) * InvLogGamma),
-    update_min_max(Ref, Name, Val),
+    update_min_max_sum(Ref, Name, Val),
     case Key =< Bound of
         true ->
             Spec = [{?TOTAL_POS, 1}, {?PREFIX + Key, 1}],
@@ -155,8 +167,9 @@ insert(Ref, Name, Val) when
             ets:update_counter(Ref, Name, Spec)
     end.
 
--spec update_min_max(ets:tab(), term(), non_neg_integer()) -> any().
-update_min_max(Ref, Name, Value) ->
+-spec update_min_max_sum(ets:tab(), term(), non_neg_integer()) -> any().
+update_min_max_sum(Ref, Name, Value) ->
+    ets:update_element(Ref, Name, [{?SUM_POS, ets:lookup_element(Ref, Name, ?SUM_POS) + Value}]),
     Min = ets:lookup_element(Ref, Name, ?MIN_POS),
     Value < Min andalso ets:update_element(Ref, Name, [{?MIN_POS, Value}]),
     Max = ets:lookup_element(Ref, Name, ?MAX_POS),
@@ -257,7 +270,7 @@ verify_compatible(Ref1, Name1, Ref2, Name2) ->
 
 -spec create_object(term(), pos_integer(), float(), float()) -> tuple().
 create_object(Name, Bound, Gamma, InvLogGamma) ->
-    Header = [Name, Bound, Gamma, InvLogGamma, 0, ?MAX_INT, ?MIN_INT, 0, 0],
+    Header = [Name, Bound, Gamma, InvLogGamma, 0, 0, ?MAX_INT, ?MIN_INT, 0, 0],
     Counters = lists:duplicate(Bound, 0),
     Object = Header ++ Counters,
     list_to_tuple(Object).
