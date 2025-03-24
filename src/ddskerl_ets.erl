@@ -49,7 +49,7 @@ If we're measuring picoseconds, this would suffice to measure 107 days.
 -behaviour(ddskerl).
 
 -export([
-    new/1,
+    new/1, new/4,
     total/1, total/2,
     sum/1, sum/2,
     insert/2, insert/3,
@@ -95,16 +95,24 @@ Options for the DDSketch.
 
 ?DOC("DDSketch instance.").
 -opaque ddsketch() :: #ddskerl_ets{}.
+?DOC("DDSketch tuple.").
+-opaque object() :: tuple().
 
--export_type([ddsketch/0, opts/0]).
+-export_type([ddsketch/0, opts/0, object/0]).
 
 ?DOC("Create a new DDSketch instance.").
 -spec new(opts()) -> ddsketch().
 new(#{ets_table := Ref, name := Name, error := Err, bound := Bound}) ->
+    new(Ref, Name, Err, Bound),
+    #ddskerl_ets{ref = Ref, name = Name}.
+
+?DOC("Create a new DDSketch instance.").
+-spec new(ets:table(), term(), float(), non_neg_integer()) -> boolean().
+new(Ref, Name, Err, Bound) ->
     Gamma = (1 + Err) / (1 - Err),
     InvLogGamma = 1.0 / math:log2(Gamma),
-    ets:insert_new(Ref, create_object(Name, Bound, Gamma, InvLogGamma)),
-    #ddskerl_ets{ref = Ref, name = Name}.
+    Object = create_object(Name, Bound, Gamma, InvLogGamma),
+    ets:insert_new(Ref, Object).
 
 ?DOC("Get the total number of elements in the DDSketch.").
 -spec total(ddsketch()) -> non_neg_integer().
@@ -133,13 +141,12 @@ reset(#ddskerl_ets{ref = Ref, name = Name} = S) ->
     S.
 
 ?DOC("Reset the DDSketch values to zero").
--spec reset(ets:tab(), term()) -> ok.
+-spec reset(ets:tab(), term()) -> boolean().
 reset(Ref, Name) ->
     Gamma = ets:lookup_element(Ref, Name, ?GAMMA_POS),
     Bound = ets:lookup_element(Ref, Name, ?BOUND_POS),
     InvLogGamma = ets:lookup_element(Ref, Name, ?INV_LOG_GAMMA_POS),
-    ets:insert(Ref, create_object(Name, Bound, Gamma, InvLogGamma)),
-    ok.
+    ets:insert(Ref, create_object(Name, Bound, Gamma, InvLogGamma)).
 
 ?DOC("Insert a value into the DDSketch.").
 -spec insert(ddsketch(), number()) -> ddsketch().
@@ -268,7 +275,7 @@ verify_compatible(Ref1, Name1, Ref2, Name2) ->
     Gamma = ets:lookup_element(Ref1, Name1, ?GAMMA_POS),
     Gamma = ets:lookup_element(Ref2, Name2, ?GAMMA_POS).
 
--spec create_object(term(), pos_integer(), float(), float()) -> tuple().
+-spec create_object(term(), pos_integer(), float(), float()) -> object().
 create_object(Name, Bound, Gamma, InvLogGamma) ->
     Header = [Name, Bound, Gamma, InvLogGamma, 0, 0, ?MAX_INT, ?MIN_INT, 0, 0],
     Counters = lists:duplicate(Bound, 0),
