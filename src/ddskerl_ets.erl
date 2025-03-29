@@ -231,6 +231,7 @@ merge(#ddskerl_ets{ref = Ref1, name = Name1} = S1, #ddskerl_ets{ref = Ref2, name
 merge(Ref1, Name1, Ref2, Name2) ->
     verify_compatible(Ref1, Name1, Ref2, Name2),
     merge_totals(Ref1, Name1, Ref2, Name2),
+    merge_sums(Ref1, Name1, Ref2, Name2),
     merge_minimum(Ref1, Name1, Ref2, Name2),
     merge_maximum(Ref1, Name1, Ref2, Name2),
     merge_counts(Ref1, Name1, Ref2, Name2).
@@ -263,6 +264,12 @@ merge_totals(Ref1, Name1, Ref2, Name2) ->
     Value1 = ets:lookup_element(Ref1, Name1, ?TOTAL_POS),
     Value2 = ets:lookup_element(Ref2, Name2, ?TOTAL_POS),
     Spec1 = [{?TOTAL_POS, Value1 + Value2}],
+    ets:update_element(Ref1, Name1, Spec1).
+
+merge_sums(Ref1, Name1, Ref2, Name2) ->
+    Value1 = ets:lookup_element(Ref1, Name1, ?SUM_POS),
+    Value2 = ets:lookup_element(Ref2, Name2, ?SUM_POS),
+    Spec1 = [{?SUM_POS, Value1 + Value2}],
     ets:update_element(Ref1, Name1, Spec1).
 
 verify_compatible(Ref1, Name1, Ref2, Name2) ->
