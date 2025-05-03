@@ -47,20 +47,11 @@ start_link(Opts) ->
 > ```
 """).
 
+-include("./ddskerl.hrl").
+
 -behaviour(ddskerl).
 
 -export([new/1, total/1, sum/1, insert/2, merge/2, quantile/2]).
-
--record(ddskerl_bound, {
-    data = gb_trees:empty() :: gb_trees:tree(non_neg_integer(), non_neg_integer()),
-    total = 0 :: non_neg_integer(),
-    min :: undefined | number(),
-    max = 0 :: number(),
-    sum = 0 :: number(),
-    bound :: non_neg_integer(),
-    gamma :: float(),
-    inv_log_gamma :: float()
-}).
 
 ?DOC("Options for the DDSketch.").
 -type opts() :: #{error := float(), bound := non_neg_integer()}.

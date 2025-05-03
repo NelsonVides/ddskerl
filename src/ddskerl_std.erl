@@ -44,19 +44,11 @@ start_link(Opts) ->
 > ```
 """).
 
+-include("./ddskerl.hrl").
+
 -behaviour(ddskerl).
 
 -export([new/1, total/1, sum/1, insert/2, merge/2, quantile/2]).
-
--record(ddskerl_std, {
-    data = #{} :: #{non_neg_integer() => non_neg_integer()},
-    total = 0 :: non_neg_integer(),
-    sum = 0 :: number(),
-    min :: undefined | number(),
-    max = 0 :: number(),
-    gamma :: float(),
-    inv_log_gamma :: float()
-}).
 
 ?DOC("Options for the DDSketch.").
 -type opts() :: #{error := float(), _ => _}.

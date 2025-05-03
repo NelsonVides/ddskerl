@@ -53,30 +53,11 @@ If we're measuring picoseconds, this would suffice to measure 107 days.
 > ```
 """).
 
+-include("./ddskerl.hrl").
+
 -behaviour(ddskerl).
 
 -export([new/1, total/1, sum/1, insert/2, merge/2, reset/1, quantile/2]).
-
--record(ddskerl_counters, {
-    ref :: counters:counters_ref(),
-    min_max :: atomics:atomics_ref(),
-    width :: non_neg_integer(),
-    bound :: non_neg_integer(),
-    gamma :: float(),
-    inv_log_gamma :: float()
-}).
-
-%% - total keeps track of the total count
-%% - underflow of values that escape the summary below the minimum bucket: the interval (0,1]
-%% - in between we find all the buckets
-%% - overflow of values that escape the summary above the maximum bucket
--define(TOTAL_POS, 1).
--define(SUM_POS, 2).
--define(UNDERFLOW_POS, 3).
--define(EXTRA_KEYS, 4).
--define(PREFIX, 3).
--define(OVERFLOW_POS(Bound), ?EXTRA_KEYS + Bound).
--define(MAX_INT, (1 bsl 64 - 1)).
 
 ?DOC("Options for the DDSketch").
 -type opts() :: #{error := float(), bound := non_neg_integer()}.
@@ -96,8 +77,8 @@ new(#{error := Err, bound := Bound}) ->
     %% So that all future comparisons will succeed.
     Width = 2 * erlang:system_info(schedulers),
     MinMax = atomics:new(Width, [{signed, false}]),
-    [atomics:put(MinMax, Ix, ?MAX_INT) || Ix <- lists:seq(1, Width, 2)],
-    Ref = counters:new(?EXTRA_KEYS + Bound, [write_concurrency]),
+    [atomics:put(MinMax, Ix, ?C_MAX_INT) || Ix <- lists:seq(1, Width, 2)],
+    Ref = counters:new(?C_EXTRA_KEYS + Bound, [write_concurrency]),
     Gamma = (1 + Err) / (1 - Err),
     InvLogGamma = 1.0 / math:log2(Gamma),
     #ddskerl_counters{
@@ -112,26 +93,26 @@ new(#{error := Err, bound := Bound}) ->
 ?DOC("Get the total number of elements in the DDSketch").
 -spec total(ddsketch()) -> non_neg_integer().
 total(#ddskerl_counters{ref = Ref}) ->
-    counters:get(Ref, ?TOTAL_POS).
+    counters:get(Ref, ?C_TOTAL_POS).
 
 ?DOC("Get the sum of elements in the DDSketch").
 -spec sum(ddsketch()) -> non_neg_integer().
 sum(#ddskerl_counters{ref = Ref}) ->
-    counters:get(Ref, ?SUM_POS).
+    counters:get(Ref, ?C_SUM_POS).
 
 ?DOC("Reset the DDSketch values to zero").
 -spec reset(ddsketch()) -> ddsketch().
 reset(#ddskerl_counters{ref = Ref, min_max = MinMax, bound = Bound, width = Width} = S) ->
-    [atomics:put(MinMax, Ix, ?MAX_INT) || Ix <- lists:seq(1, Width, 2)],
+    [atomics:put(MinMax, Ix, ?C_MAX_INT) || Ix <- lists:seq(1, Width, 2)],
     [atomics:put(MinMax, Ix, 0) || Ix <- lists:seq(2, Width, 2)],
-    [counters:put(Ref, Pos, 0) || Pos <- lists:seq(?TOTAL_POS, ?OVERFLOW_POS(Bound))],
+    [counters:put(Ref, Pos, 0) || Pos <- lists:seq(?C_TOTAL_POS, ?C_OVERFLOW_POS(Bound))],
     S.
 
 ?DOC("Insert a value into the DDSketch").
 -spec insert(ddsketch(), Value :: number()) -> ddsketch().
 insert(#ddskerl_counters{ref = Ref, min_max = MinMax} = S, Val) when 0 < Val, Val =< 1 ->
-    counters:add(Ref, ?TOTAL_POS, 1),
-    counters:add(Ref, ?UNDERFLOW_POS, 1),
+    counters:add(Ref, ?C_TOTAL_POS, 1),
+    counters:add(Ref, ?C_UNDERFLOW_POS, 1),
     update_min_max_sum(Ref, MinMax, round(Val), erlang:system_info(scheduler_id)),
     S;
 insert(
@@ -141,13 +122,13 @@ insert(
     1 < Val
 ->
     Key = ceil(math:log2(Val) * InvLogGamma),
-    counters:add(Ref, ?TOTAL_POS, 1),
+    counters:add(Ref, ?C_TOTAL_POS, 1),
     update_min_max_sum(Ref, MinMax, round(Val), erlang:system_info(scheduler_id)),
     case Key =< Bound of
         true ->
-            counters:add(Ref, ?UNDERFLOW_POS + Key, 1);
+            counters:add(Ref, ?C_UNDERFLOW_POS + Key, 1);
         false ->
-            counters:add(Ref, ?OVERFLOW_POS(Bound), 1)
+            counters:add(Ref, ?C_OVERFLOW_POS(Bound), 1)
     end,
     S.
 
@@ -155,7 +136,7 @@ insert(
     counters:counters_ref(), atomics:atomics_ref(), non_neg_integer(), non_neg_integer()
 ) -> ok.
 update_min_max_sum(Ref, MinMax, Value, SchedulerId) ->
-    counters:add(Ref, ?SUM_POS, Value),
+    counters:add(Ref, ?C_SUM_POS, Value),
     MinIndex = 2 * SchedulerId - 1,
     MaxIndex = 2 * SchedulerId,
     Min = atomics:get(MinMax, MinIndex),
@@ -203,11 +184,11 @@ quantile(#ddskerl_counters{min_max = MinMax, width = Width}, 1.0) ->
 quantile(#ddskerl_counters{ref = Ref, bound = Bound, gamma = Gamma}, Quantile) when
     0 < Quantile, Quantile < 1
 ->
-    Total = counters:get(Ref, ?TOTAL_POS),
-    AccRank = counters:get(Ref, ?UNDERFLOW_POS),
+    Total = counters:get(Ref, ?C_TOTAL_POS),
+    AccRank = counters:get(Ref, ?C_UNDERFLOW_POS),
     TotalQuantile = Total * Quantile,
-    ToIndex = ?OVERFLOW_POS(Bound) + 1,
-    get_quantile(Ref, Gamma, TotalQuantile, AccRank, ?PREFIX, ToIndex).
+    ToIndex = ?C_OVERFLOW_POS(Bound) + 1,
+    get_quantile(Ref, Gamma, TotalQuantile, AccRank, ?C_PREFIX, ToIndex).
 
 -spec get_quantile(
     counters:counters_ref(),
@@ -221,7 +202,7 @@ quantile(#ddskerl_counters{ref = Ref, bound = Bound, gamma = Gamma}, Quantile) w
 get_quantile(_, _, _, _, End, End) ->
     undefined;
 get_quantile(_, Gamma, TotalQuantile, AccRank, Pos, _) when TotalQuantile =< AccRank ->
-    result(Gamma, Pos - ?PREFIX);
+    result(Gamma, Pos - ?C_PREFIX);
 get_quantile(Ref, Gamma, TotalQuantile, AccRank, Pos, OverflowPos) ->
     NewPos = Pos + 1,
     Value = counters:get(Ref, NewPos),
