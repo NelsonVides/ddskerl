@@ -13,14 +13,17 @@ DDSketch behaviour.
 -if(?OTP_RELEASE >= 26).
 ?DOC("Options for the DDSketch.").
 -type opts() :: #{atom() := dynamic()}.
-?DOC("DDSketch instance.").
--type ddsketch() :: dynamic().
 -else.
 ?DOC("Options for the DDSketch.").
 -type opts() :: #{atom() := _}.
-?DOC("DDSketch instance.").
--type ddsketch() :: _.
 -endif.
+
+?DOC("DDSketch instance.").
+-type ddsketch() ::
+    ddskerl_std:ddsketch()
+    | ddskerl_bound:ddsketch()
+    | ddskerl_ets:ddsketch()
+    | ddskerl_counters:ddsketch().
 
 -export_type([opts/0, ddsketch/0]).
 
