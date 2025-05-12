@@ -46,6 +46,8 @@ If we're measuring picoseconds, this would suffice to measure 107 days.
 > ```
 """).
 
+-include("./ddskerl.hrl").
+
 -behaviour(ddskerl).
 
 -export([
@@ -57,28 +59,6 @@ If we're measuring picoseconds, this would suffice to measure 107 days.
     reset/1, reset/2,
     quantile/2, quantile/3
 ]).
-
--record(ddskerl_ets, {
-    ref :: ets:tab(),
-    name :: term()
-}).
-
-%% Total keeps track of the total count
-%% overflow of values that escape the summary above the maximum bucket
-%% underflow of values that escape the summary below the minimum bucket
-%-define(NAME_POS, 1).
--define(BOUND_POS, 2).
--define(GAMMA_POS, 3).
--define(INV_LOG_GAMMA_POS, 4).
--define(TOTAL_POS, 5).
--define(SUM_POS, 6).
--define(MIN_POS, 7).
--define(MAX_POS, 8).
--define(OVERFLOW_POS, 9).
--define(UNDERFLOW_POS, 10).
--define(PREFIX, 10).
--define(MIN_INT, (0)).
--define(MAX_INT, (1 bsl 64 - 1)).
 
 ?DOC("""
 Options for the DDSketch.
@@ -122,7 +102,7 @@ total(#ddskerl_ets{ref = Ref, name = Name}) ->
 ?DOC("Get the total number of elements in the DDSketch.").
 -spec total(ets:table(), term()) -> non_neg_integer().
 total(Ref, Name) ->
-    ets:lookup_element(Ref, Name, ?TOTAL_POS).
+    ets:lookup_element(Ref, Name, ?E_TOTAL_POS).
 
 ?DOC("Get the sum of elements in the DDSketch.").
 -spec sum(ddsketch()) -> non_neg_integer().
@@ -132,7 +112,7 @@ sum(#ddskerl_ets{ref = Ref, name = Name}) ->
 ?DOC("Get the sum of elements in the DDSketch.").
 -spec sum(ets:table(), term()) -> non_neg_integer().
 sum(Ref, Name) ->
-    ets:lookup_element(Ref, Name, ?SUM_POS).
+    ets:lookup_element(Ref, Name, ?E_SUM_POS).
 
 ?DOC("Reset the DDSketch values to zero").
 -spec reset(ddsketch()) -> ddsketch().
@@ -143,9 +123,9 @@ reset(#ddskerl_ets{ref = Ref, name = Name} = S) ->
 ?DOC("Reset the DDSketch values to zero").
 -spec reset(ets:tab(), term()) -> boolean().
 reset(Ref, Name) ->
-    Gamma = ets:lookup_element(Ref, Name, ?GAMMA_POS),
-    Bound = ets:lookup_element(Ref, Name, ?BOUND_POS),
-    InvLogGamma = ets:lookup_element(Ref, Name, ?INV_LOG_GAMMA_POS),
+    Gamma = ets:lookup_element(Ref, Name, ?E_GAMMA_POS),
+    Bound = ets:lookup_element(Ref, Name, ?E_BOUND_POS),
+    InvLogGamma = ets:lookup_element(Ref, Name, ?E_INV_LOG_GAMMA_POS),
     ets:insert(Ref, create_object(Name, Bound, Gamma, InvLogGamma)).
 
 ?DOC("Insert a value into the DDSketch.").
@@ -157,32 +137,33 @@ insert(#ddskerl_ets{ref = Ref, name = Name} = S, Val) ->
 ?DOC("Insert a value into the DDSketch.").
 -spec insert(ets:tab(), term(), number()) -> any().
 insert(Ref, Name, Val) when 0 < Val, Val =< 1 ->
-    Spec = [{?TOTAL_POS, 1}, {?UNDERFLOW_POS, 1}],
+    Spec = [{?E_TOTAL_POS, 1}, {?E_UNDERFLOW_POS, 1}],
     update_min_max_sum(Ref, Name, Val),
     ets:update_counter(Ref, Name, Spec);
 insert(Ref, Name, Val) when
     1 < Val
 ->
-    Bound = ets:lookup_element(Ref, Name, ?BOUND_POS),
-    InvLogGamma = ets:lookup_element(Ref, Name, ?INV_LOG_GAMMA_POS),
+    Bound = ets:lookup_element(Ref, Name, ?E_BOUND_POS),
+    InvLogGamma = ets:lookup_element(Ref, Name, ?E_INV_LOG_GAMMA_POS),
     Key = ceil(math:log2(Val) * InvLogGamma),
     update_min_max_sum(Ref, Name, Val),
     case Key =< Bound of
         true ->
-            Spec = [{?TOTAL_POS, 1}, {?PREFIX + Key, 1}],
+            Spec = [{?E_TOTAL_POS, 1}, {?E_PREFIX + Key, 1}],
             ets:update_counter(Ref, Name, Spec);
         false ->
-            Spec = [{?TOTAL_POS, 1}, {?OVERFLOW_POS, 1}],
+            Spec = [{?E_TOTAL_POS, 1}, {?E_OVERFLOW_POS, 1}],
             ets:update_counter(Ref, Name, Spec)
     end.
 
 -spec update_min_max_sum(ets:tab(), term(), non_neg_integer()) -> any().
 update_min_max_sum(Ref, Name, Value) ->
-    ets:update_element(Ref, Name, [{?SUM_POS, ets:lookup_element(Ref, Name, ?SUM_POS) + Value}]),
-    Min = ets:lookup_element(Ref, Name, ?MIN_POS),
-    Value < Min andalso ets:update_element(Ref, Name, [{?MIN_POS, Value}]),
-    Max = ets:lookup_element(Ref, Name, ?MAX_POS),
-    Max < Value andalso ets:update_element(Ref, Name, [{?MAX_POS, Value}]).
+    Update = {?E_SUM_POS, ets:lookup_element(Ref, Name, ?E_SUM_POS) + Value},
+    ets:update_element(Ref, Name, [Update]),
+    Min = ets:lookup_element(Ref, Name, ?E_MIN_POS),
+    Value < Min andalso ets:update_element(Ref, Name, [{?E_MIN_POS, Value}]),
+    Max = ets:lookup_element(Ref, Name, ?E_MAX_POS),
+    Max < Value andalso ets:update_element(Ref, Name, [{?E_MAX_POS, Value}]).
 
 ?DOC("Calculate the quantile of a DDSketch.").
 -spec quantile(ddsketch(), float()) -> float() | undefined.
@@ -192,19 +173,19 @@ quantile(#ddskerl_ets{ref = Ref, name = Name}, Q) ->
 ?DOC("Calculate the quantile of a DDSketch.").
 -spec quantile(ets:tab(), term(), float()) -> float() | undefined.
 quantile(Ref, Name, +0.0) ->
-    ets:lookup_element(Ref, Name, ?MIN_POS);
+    ets:lookup_element(Ref, Name, ?E_MIN_POS);
 quantile(Ref, Name, 1.0) ->
-    ets:lookup_element(Ref, Name, ?MAX_POS);
+    ets:lookup_element(Ref, Name, ?E_MAX_POS);
 quantile(Ref, Name, Quantile) when
     0 < Quantile, Quantile < 1
 ->
     [Element] = ets:lookup(Ref, Name),
-    Gamma = element(?GAMMA_POS, Element),
-    Total = element(?TOTAL_POS, Element),
-    AccRank = element(?UNDERFLOW_POS, Element),
+    Gamma = element(?E_GAMMA_POS, Element),
+    Total = element(?E_TOTAL_POS, Element),
+    AccRank = element(?E_UNDERFLOW_POS, Element),
     TotalQuantile = Total * Quantile,
     ToIndex = tuple_size(Element) + 2,
-    get_quantile(Element, Gamma, TotalQuantile, AccRank, ?PREFIX, ToIndex).
+    get_quantile(Element, Gamma, TotalQuantile, AccRank, ?E_PREFIX, ToIndex).
 
 -spec get_quantile(
     object(), float(), float(), non_neg_integer(), non_neg_integer(), non_neg_integer()
@@ -213,7 +194,7 @@ quantile(Ref, Name, Quantile) when
 get_quantile(_, _, _, _, OverEnd, OverEnd) ->
     undefined;
 get_quantile(_, Gamma, TotalQuantile, AccRank, Pos, _) when TotalQuantile =< AccRank ->
-    result(Gamma, Pos - ?PREFIX);
+    result(Gamma, Pos - ?E_PREFIX);
 get_quantile(Element, Gamma, TotalQuantile, AccRank, Pos, OverflowPos) ->
     NewPos = Pos + 1,
     Value = element(NewPos, Element),
@@ -237,7 +218,7 @@ merge(Ref1, Name1, Ref2, Name2) ->
     merge_counts(Ref1, Name1, Ref2, Name2).
 
 merge_counts(Ref1, Name1, Ref2, Name2) ->
-    Bound = ets:lookup_element(Ref1, Name1, ?BOUND_POS),
+    Bound = ets:lookup_element(Ref1, Name1, ?E_BOUND_POS),
     lists:foreach(
         fun(Pos) ->
             Value1 = ets:lookup_element(Ref1, Name1, Pos),
@@ -245,42 +226,42 @@ merge_counts(Ref1, Name1, Ref2, Name2) ->
             Spec1 = [{Pos, Value1 + Value2}],
             ets:update_element(Ref1, Name1, Spec1)
         end,
-        lists:seq(?PREFIX, Bound)
+        lists:seq(?E_PREFIX, Bound)
     ).
 
 merge_maximum(Ref1, Name1, Ref2, Name2) ->
-    Value1 = ets:lookup_element(Ref1, Name1, ?MAX_POS),
-    Value2 = ets:lookup_element(Ref2, Name2, ?MAX_POS),
-    Spec1 = [{?MAX_POS, max(Value1, Value2)}],
+    Value1 = ets:lookup_element(Ref1, Name1, ?E_MAX_POS),
+    Value2 = ets:lookup_element(Ref2, Name2, ?E_MAX_POS),
+    Spec1 = [{?E_MAX_POS, max(Value1, Value2)}],
     ets:update_element(Ref1, Name1, Spec1).
 
 merge_minimum(Ref1, Name1, Ref2, Name2) ->
-    Value1 = ets:lookup_element(Ref1, Name1, ?MIN_POS),
-    Value2 = ets:lookup_element(Ref2, Name2, ?MIN_POS),
-    Spec1 = [{?MIN_POS, min(Value1, Value2)}],
+    Value1 = ets:lookup_element(Ref1, Name1, ?E_MIN_POS),
+    Value2 = ets:lookup_element(Ref2, Name2, ?E_MIN_POS),
+    Spec1 = [{?E_MIN_POS, min(Value1, Value2)}],
     ets:update_element(Ref1, Name1, Spec1).
 
 merge_totals(Ref1, Name1, Ref2, Name2) ->
-    Value1 = ets:lookup_element(Ref1, Name1, ?TOTAL_POS),
-    Value2 = ets:lookup_element(Ref2, Name2, ?TOTAL_POS),
-    Spec1 = [{?TOTAL_POS, Value1 + Value2}],
+    Value1 = ets:lookup_element(Ref1, Name1, ?E_TOTAL_POS),
+    Value2 = ets:lookup_element(Ref2, Name2, ?E_TOTAL_POS),
+    Spec1 = [{?E_TOTAL_POS, Value1 + Value2}],
     ets:update_element(Ref1, Name1, Spec1).
 
 merge_sums(Ref1, Name1, Ref2, Name2) ->
-    Value1 = ets:lookup_element(Ref1, Name1, ?SUM_POS),
-    Value2 = ets:lookup_element(Ref2, Name2, ?SUM_POS),
-    Spec1 = [{?SUM_POS, Value1 + Value2}],
+    Value1 = ets:lookup_element(Ref1, Name1, ?E_SUM_POS),
+    Value2 = ets:lookup_element(Ref2, Name2, ?E_SUM_POS),
+    Spec1 = [{?E_SUM_POS, Value1 + Value2}],
     ets:update_element(Ref1, Name1, Spec1).
 
 verify_compatible(Ref1, Name1, Ref2, Name2) ->
-    Bound = ets:lookup_element(Ref1, Name1, ?BOUND_POS),
-    Bound = ets:lookup_element(Ref2, Name2, ?BOUND_POS),
-    Gamma = ets:lookup_element(Ref1, Name1, ?GAMMA_POS),
-    Gamma = ets:lookup_element(Ref2, Name2, ?GAMMA_POS).
+    Bound = ets:lookup_element(Ref1, Name1, ?E_BOUND_POS),
+    Bound = ets:lookup_element(Ref2, Name2, ?E_BOUND_POS),
+    Gamma = ets:lookup_element(Ref1, Name1, ?E_GAMMA_POS),
+    Gamma = ets:lookup_element(Ref2, Name2, ?E_GAMMA_POS).
 
 -spec create_object(term(), pos_integer(), float(), float()) -> object().
 create_object(Name, Bound, Gamma, InvLogGamma) ->
-    Header = [Name, Bound, Gamma, InvLogGamma, 0, 0, ?MAX_INT, ?MIN_INT, 0, 0],
+    Header = [Name, Bound, Gamma, InvLogGamma, 0, 0, ?E_MAX_INT, ?E_MIN_INT, 0, 0],
     Counters = lists:duplicate(Bound, 0),
     Object = Header ++ Counters,
     list_to_tuple(Object).

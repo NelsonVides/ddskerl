@@ -16,13 +16,9 @@ It is on the other hand an exact algorithm,
 hence it can be used for comparison against all other approximations.
 """).
 
--export([new/0, total/1, sum/1, insert/2, merge/2, quantile/2]).
+-include("./ddskerl.hrl").
 
--record(ddskerl_exact, {
-    data = #{} :: #{number() => non_neg_integer()},
-    total = 0 :: non_neg_integer(),
-    sum = 0 :: number()
-}).
+-export([new/0, total/1, sum/1, insert/2, merge/2, quantile/2]).
 
 ?DOC("DDSketch instance.").
 -opaque ddsketch() :: #ddskerl_exact{}.
