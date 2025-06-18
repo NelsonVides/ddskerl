@@ -3,6 +3,7 @@
 -behaviour(ct_suite).
 -include_lib("stdlib/include/assert.hrl").
 -include_lib("proper/include/proper.hrl").
+-include("../src/ddskerl.hrl").
 
 %% Exported functions
 -export([all/0, init_per_suite/1, end_per_suite/1, init_per_testcase/2, end_per_testcase/2]).
@@ -24,9 +25,13 @@ groups() ->
         {ddskerl_std, tests()},
         {ddskerl_bound, tests()},
         {ddskerl_counters, tests()},
-        {ddskerl_ets, [merge_ets_tuples | tests()]},
+        {ddskerl_ets, tests_ets_tuples() ++ tests()},
         {reset_preallocated, [reset_counters, reset_ets]}
     ].
+
+-spec tests_ets_tuples() -> [atom()].
+tests_ets_tuples() ->
+    [merge_ets_tuples, total_ets_tuple, sum_ets_tuple, quantile_ets_tuple].
 
 -spec tests() -> [atom()].
 tests() ->
@@ -91,10 +96,36 @@ get_quantile_test(Config) ->
     Bound = bucket_size(10, RelativeError),
     Sketch = estimate_sketch(Module, Sample, ?FUNCTION_NAME, RelativeError, Bound),
     Quantile = Module:quantile(Sketch, 0.5),
+    assert_quantile(4.0, Quantile, RelativeError, Quantile, Sketch).
+
+assert_quantile(Expected, Quantile, RelativeError, Quantile, Sketch) ->
     ?assert(
-        abs(Quantile - 4.0) =< RelativeError * 4.0,
+        abs(Quantile - Expected) =< RelativeError * 4.0,
         #{quantile => Quantile, sketch => Sketch}
     ).
+
+prepare_basic_ets_sketch(FName, RelativeError) ->
+    Bound = bucket_size(10, RelativeError),
+    estimate_sketch(ddskerl_ets, [2, 4, 6, 8, 10], FName, RelativeError, Bound).
+
+total_ets_tuple(_) ->
+    RelativeError = 0.02,
+    #ddskerl_ets{name = Name} = prepare_basic_ets_sketch(?FUNCTION_NAME, RelativeError),
+    [Tuple] = ets:lookup(?FUNCTION_NAME, Name),
+    ?assertEqual(5, ddskerl_ets:total_tuple(Tuple)).
+
+sum_ets_tuple(_) ->
+    RelativeError = 0.02,
+    #ddskerl_ets{name = Name} = prepare_basic_ets_sketch(?FUNCTION_NAME, RelativeError),
+    [Tuple] = ets:lookup(?FUNCTION_NAME, Name),
+    ?assertEqual(30, ddskerl_ets:sum_tuple(Tuple)).
+
+quantile_ets_tuple(_) ->
+    RelativeError = 0.02,
+    Sketch = #ddskerl_ets{name = Name} = prepare_basic_ets_sketch(?FUNCTION_NAME, RelativeError),
+    [Tuple] = ets:lookup(?FUNCTION_NAME, Name),
+    Quantile = ddskerl_ets:quantile_tuple(Tuple, 0.50),
+    assert_quantile(6, Quantile, RelativeError, Quantile, Sketch).
 
 merge_ets_tuples(_) ->
     RelativeError = 0.02,
@@ -156,7 +187,7 @@ prop_quantile_error_test(Config) ->
         [{RelativeError, Sample} | _] ->
             Bound = bucket_size(1 + lists:max(Sample), RelativeError),
             Sketch = estimate_sketch(Module, Sample, ?FUNCTION_NAME, RelativeError, Bound),
-            Summary = calculate_summary(Module, Sample, RelativeError, Bound),
+            Summary = calculate_summary(Sample),
             Properties = lists:map(
                 fun(Q) ->
                     SketchQuantile = Module:quantile(Sketch, Q),
@@ -188,7 +219,7 @@ prop(Module, T, RelativeError, Sample) ->
     SampleSize = length(Sample),
     Bound = bucket_size(1 + lists:max(Sample), RelativeError),
     Sketch = estimate_sketch(Module, Sample, T, RelativeError, Bound),
-    Summary = calculate_summary(Module, Sample, RelativeError, Bound),
+    Summary = calculate_summary(Sample),
     lists:all(
         fun(Q) ->
             check_quantile(Sketch, Summary, Module, RelativeError, SampleSize, Q) andalso
@@ -217,7 +248,7 @@ estimate_sketch(Module, Sample, T, RelativeError, Bound) ->
     Sketch = Module:new(Opts),
     lists:foldl(fun(V, S) -> Module:insert(S, V) end, Sketch, Sample).
 
-calculate_summary(_, Sample, _, _) ->
+calculate_summary(Sample) ->
     Sketch = ddskerl_exact:new(),
     lists:foldl(fun(V, S) -> ddskerl_exact:insert(S, V) end, Sketch, Sample).
 

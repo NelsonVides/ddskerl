@@ -56,9 +56,16 @@ If we're measuring picoseconds, this would suffice to measure 107 days.
     sum/1, sum/2,
     insert/2, insert/3,
     merge/2, merge/4,
-    merge_out/2,
     reset/1, reset/2,
     quantile/2, quantile/3
+]).
+
+-export([
+    total_tuple/1,
+    sum_tuple/1,
+    merge_out/2,
+    merge_tuples/2,
+    quantile_tuple/2
 ]).
 
 ?DOC("""
@@ -181,26 +188,7 @@ quantile(Ref, Name, Quantile) when
     0 < Quantile, Quantile < 1
 ->
     [Element] = ets:lookup(Ref, Name),
-    Gamma = element(?E_GAMMA_POS, Element),
-    Total = element(?E_TOTAL_POS, Element),
-    AccRank = element(?E_UNDERFLOW_POS, Element),
-    TotalQuantile = Total * Quantile,
-    ToIndex = tuple_size(Element) + 2,
-    get_quantile(Element, Gamma, TotalQuantile, AccRank, ?E_PREFIX, ToIndex).
-
--spec get_quantile(
-    object(), float(), float(), non_neg_integer(), non_neg_integer(), non_neg_integer()
-) ->
-    float() | undefined.
-get_quantile(_, _, _, _, OverEnd, OverEnd) ->
-    undefined;
-get_quantile(_, Gamma, TotalQuantile, AccRank, Pos, _) when TotalQuantile =< AccRank ->
-    result(Gamma, Pos - ?E_PREFIX);
-get_quantile(Element, Gamma, TotalQuantile, AccRank, Pos, OverflowPos) ->
-    NewPos = Pos + 1,
-    Value = element(NewPos, Element),
-    NewAccRank = AccRank + Value,
-    get_quantile(Element, Gamma, TotalQuantile, NewAccRank, NewPos, OverflowPos).
+    quantile_tuple(Element, Quantile).
 
 ?DOC("Merge the second DDSketch instance into the first").
 -spec merge(ddsketch(), ddsketch()) -> ddsketch().
@@ -255,6 +243,21 @@ merge_out(#ddskerl_ets{ref = Ref1, name = Name1}, #ddskerl_ets{ref = Ref2, name 
 merge_out(Ref1, Name1, Ref2, Name2) ->
     [Val1 | _] = ets:lookup(Ref1, Name1),
     [Val2 | _] = ets:lookup(Ref2, Name2),
+    merge_tuples(Val1, Val2).
+
+?DOC("Get the total number of elements in the DDSketch.").
+-spec total_tuple(tuple()) -> non_neg_integer().
+total_tuple(Val) ->
+    element(?E_TOTAL_POS, Val).
+
+?DOC("Get the sum of elements in the DDSketch.").
+-spec sum_tuple(tuple()) -> non_neg_integer().
+sum_tuple(Val) ->
+    element(?E_SUM_POS, Val).
+
+?DOC("Merges the second DDSketch instance into the first on the underlying tuples").
+-spec merge_tuples(tuple(), tuple()) -> tuple().
+merge_tuples(Val1, Val2) ->
     Bound = element(?E_BOUND_POS, Val1),
     Bound = element(?E_BOUND_POS, Val2),
     true = element(?E_GAMMA_POS, Val1) =:= element(?E_GAMMA_POS, Val2),
@@ -268,6 +271,36 @@ merge_out(Ref1, Name1, Ref2, Name2) ->
         V1,
         lists:seq(?E_TOTAL_POS, Bound)
     ).
+
+?DOC("Calculate the quantile of a DDSketch.").
+-spec quantile_tuple(tuple(), float()) -> float() | undefined.
+quantile_tuple(Val, +0.0) ->
+    element(?E_MIN_POS, Val);
+quantile_tuple(Val, 1.0) ->
+    element(?E_MAX_POS, Val);
+quantile_tuple(Val, Quantile) when
+    0 < Quantile, Quantile < 1
+->
+    Gamma = element(?E_GAMMA_POS, Val),
+    Total = element(?E_TOTAL_POS, Val),
+    AccRank = element(?E_UNDERFLOW_POS, Val),
+    TotalQuantile = Total * Quantile,
+    ToIndex = tuple_size(Val) + 2,
+    get_quantile(Val, Gamma, TotalQuantile, AccRank, ?E_PREFIX, ToIndex).
+
+-spec get_quantile(
+    object(), float(), float(), non_neg_integer(), non_neg_integer(), non_neg_integer()
+) ->
+    float() | undefined.
+get_quantile(_, _, _, _, OverEnd, OverEnd) ->
+    undefined;
+get_quantile(_, Gamma, TotalQuantile, AccRank, Pos, _) when TotalQuantile =< AccRank ->
+    result(Gamma, Pos - ?E_PREFIX);
+get_quantile(Element, Gamma, TotalQuantile, AccRank, Pos, OverflowPos) ->
+    NewPos = Pos + 1,
+    Value = element(NewPos, Element),
+    NewAccRank = AccRank + Value,
+    get_quantile(Element, Gamma, TotalQuantile, NewAccRank, NewPos, OverflowPos).
 
 -spec create_object(term(), pos_integer(), float(), float()) -> object().
 create_object(Name, Bound, Gamma, InvLogGamma) ->
