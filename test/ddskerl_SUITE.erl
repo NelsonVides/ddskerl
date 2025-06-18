@@ -24,7 +24,7 @@ groups() ->
         {ddskerl_std, tests()},
         {ddskerl_bound, tests()},
         {ddskerl_counters, tests()},
-        {ddskerl_ets, tests()},
+        {ddskerl_ets, [merge_ets_tuples | tests()]},
         {reset_preallocated, [reset_counters, reset_ets]}
     ].
 
@@ -96,6 +96,16 @@ get_quantile_test(Config) ->
         #{quantile => Quantile, sketch => Sketch}
     ).
 
+merge_ets_tuples(_) ->
+    RelativeError = 0.02,
+    Bound = bucket_size(10, RelativeError),
+    Sketch1 = estimate_sketch(ddskerl_ets, [4], ?FUNCTION_NAME, RelativeError, Bound),
+    Sketch2 = estimate_sketch(ddskerl_ets, [8], ?FUNCTION_NAME, RelativeError, Bound),
+    MergedSketch = ddskerl_ets:merge_out(Sketch1, Sketch2),
+    ets:insert(?FUNCTION_NAME, MergedSketch),
+    Quantile = ddskerl_ets:quantile(Sketch1, 0.5),
+    assert_merge(Quantile, RelativeError, Sketch1, Sketch2).
+
 merge_test(Config) ->
     Module = proplists:get_value(module, Config),
     RelativeError = 0.02,
@@ -104,6 +114,9 @@ merge_test(Config) ->
     Sketch2 = estimate_sketch(Module, [8], ?FUNCTION_NAME, RelativeError, Bound),
     MergedSketch = Module:merge(Sketch1, Sketch2),
     Quantile = Module:quantile(MergedSketch, 0.5),
+    assert_merge(Quantile, RelativeError, Sketch1, Sketch2).
+
+assert_merge(Quantile, RelativeError, Sketch1, Sketch2) ->
     ?assert(
         abs(Quantile - 4.0) =< RelativeError * 4.0,
         #{sketch_one => Sketch1, sketch_two => Sketch2}

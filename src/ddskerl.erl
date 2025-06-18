@@ -12,10 +12,10 @@ DDSketch behaviour.
 
 -if(?OTP_RELEASE >= 26).
 ?DOC("Options for the DDSketch.").
--type opts() :: #{atom() := dynamic()}.
+-type opts() :: #{atom() => dynamic()}.
 -else.
 ?DOC("Options for the DDSketch.").
--type opts() :: #{atom() := _}.
+-type opts() :: #{atom() => _}.
 -endif.
 
 ?DOC("DDSketch instance.").

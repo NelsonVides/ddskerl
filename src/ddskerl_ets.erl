@@ -56,6 +56,7 @@ If we're measuring picoseconds, this would suffice to measure 107 days.
     sum/1, sum/2,
     insert/2, insert/3,
     merge/2, merge/4,
+    merge_out/2,
     reset/1, reset/2,
     quantile/2, quantile/3
 ]).
@@ -201,67 +202,76 @@ get_quantile(Element, Gamma, TotalQuantile, AccRank, Pos, OverflowPos) ->
     NewAccRank = AccRank + Value,
     get_quantile(Element, Gamma, TotalQuantile, NewAccRank, NewPos, OverflowPos).
 
-?DOC("Merge two DDSketch instances.").
+?DOC("Merge the second DDSketch instance into the first").
 -spec merge(ddsketch(), ddsketch()) -> ddsketch().
 merge(#ddskerl_ets{ref = Ref1, name = Name1} = S1, #ddskerl_ets{ref = Ref2, name = Name2}) ->
     merge(Ref1, Name1, Ref2, Name2),
     S1.
 
-?DOC("Merge two DDSketch instances.").
+?DOC("Merge the second DDSketch instance into the first").
 -spec merge(ets:tab(), term(), ets:tab(), term()) -> any().
 merge(Ref1, Name1, Ref2, Name2) ->
-    verify_compatible(Ref1, Name1, Ref2, Name2),
-    merge_totals(Ref1, Name1, Ref2, Name2),
-    merge_sums(Ref1, Name1, Ref2, Name2),
-    merge_minimum(Ref1, Name1, Ref2, Name2),
-    merge_maximum(Ref1, Name1, Ref2, Name2),
-    merge_counts(Ref1, Name1, Ref2, Name2).
+    [Val2] = ets:lookup(Ref2, Name2),
+    verify_compatible(Ref1, Name1, Val2),
+    merge_minimum(Ref1, Name1, Val2),
+    merge_maximum(Ref1, Name1, Val2),
+    merge_counts(Ref1, Name1, Val2).
 
-merge_counts(Ref1, Name1, Ref2, Name2) ->
+verify_compatible(Ref1, Name1, Val2) ->
+    true = ets:lookup_element(Ref1, Name1, ?E_BOUND_POS) =:= element(?E_BOUND_POS, Val2),
+    true = ets:lookup_element(Ref1, Name1, ?E_GAMMA_POS) =:= element(?E_GAMMA_POS, Val2).
+
+merge_maximum(Ref1, Name1, Val2) ->
+    Value1 = ets:lookup_element(Ref1, Name1, ?E_MAX_POS),
+    Value2 = element(?E_MAX_POS, Val2),
+    Spec1 = [{?E_MAX_POS, max(Value1, Value2)}],
+    ets:update_element(Ref1, Name1, Spec1).
+
+merge_minimum(Ref1, Name1, Val2) ->
+    Value1 = ets:lookup_element(Ref1, Name1, ?E_MIN_POS),
+    Value2 = element(?E_MIN_POS, Val2),
+    Spec1 = [{?E_MIN_POS, min(Value1, Value2)}],
+    ets:update_element(Ref1, Name1, Spec1).
+
+merge_counts(Ref1, Name1, Val2) ->
     Bound = ets:lookup_element(Ref1, Name1, ?E_BOUND_POS),
     lists:foreach(
         fun(Pos) ->
             Value1 = ets:lookup_element(Ref1, Name1, Pos),
-            Value2 = ets:lookup_element(Ref2, Name2, Pos),
+            Value2 = element(Pos, Val2),
             Spec1 = [{Pos, Value1 + Value2}],
-            ets:update_element(Ref1, Name1, Spec1)
+            ets:update_counter(Ref1, Name1, Spec1)
         end,
-        lists:seq(?E_PREFIX, Bound)
+        lists:seq(?E_TOTAL_POS, Bound)
     ).
 
-merge_maximum(Ref1, Name1, Ref2, Name2) ->
-    Value1 = ets:lookup_element(Ref1, Name1, ?E_MAX_POS),
-    Value2 = ets:lookup_element(Ref2, Name2, ?E_MAX_POS),
-    Spec1 = [{?E_MAX_POS, max(Value1, Value2)}],
-    ets:update_element(Ref1, Name1, Spec1).
+?DOC("Merge the second DDSketch instance into the first").
+-spec merge_out(ddsketch(), ddsketch()) -> tuple().
+merge_out(#ddskerl_ets{ref = Ref1, name = Name1}, #ddskerl_ets{ref = Ref2, name = Name2}) ->
+    merge_out(Ref1, Name1, Ref2, Name2).
 
-merge_minimum(Ref1, Name1, Ref2, Name2) ->
-    Value1 = ets:lookup_element(Ref1, Name1, ?E_MIN_POS),
-    Value2 = ets:lookup_element(Ref2, Name2, ?E_MIN_POS),
-    Spec1 = [{?E_MIN_POS, min(Value1, Value2)}],
-    ets:update_element(Ref1, Name1, Spec1).
-
-merge_totals(Ref1, Name1, Ref2, Name2) ->
-    Value1 = ets:lookup_element(Ref1, Name1, ?E_TOTAL_POS),
-    Value2 = ets:lookup_element(Ref2, Name2, ?E_TOTAL_POS),
-    Spec1 = [{?E_TOTAL_POS, Value1 + Value2}],
-    ets:update_element(Ref1, Name1, Spec1).
-
-merge_sums(Ref1, Name1, Ref2, Name2) ->
-    Value1 = ets:lookup_element(Ref1, Name1, ?E_SUM_POS),
-    Value2 = ets:lookup_element(Ref2, Name2, ?E_SUM_POS),
-    Spec1 = [{?E_SUM_POS, Value1 + Value2}],
-    ets:update_element(Ref1, Name1, Spec1).
-
-verify_compatible(Ref1, Name1, Ref2, Name2) ->
-    Bound = ets:lookup_element(Ref1, Name1, ?E_BOUND_POS),
-    Bound = ets:lookup_element(Ref2, Name2, ?E_BOUND_POS),
-    Gamma = ets:lookup_element(Ref1, Name1, ?E_GAMMA_POS),
-    Gamma = ets:lookup_element(Ref2, Name2, ?E_GAMMA_POS).
+?DOC("Merges the second DDSketch instance into the first on the underlying tuples").
+-spec merge_out(ets:tab(), term(), ets:tab(), term()) -> tuple().
+merge_out(Ref1, Name1, Ref2, Name2) ->
+    [Val1 | _] = ets:lookup(Ref1, Name1),
+    [Val2 | _] = ets:lookup(Ref2, Name2),
+    Bound = element(?E_BOUND_POS, Val1),
+    Bound = element(?E_BOUND_POS, Val2),
+    true = element(?E_GAMMA_POS, Val1) =:= element(?E_GAMMA_POS, Val2),
+    V0 = setelement(?E_MIN_POS, Val1, min(element(?E_MIN_POS, Val1), element(?E_MIN_POS, Val2))),
+    V1 = setelement(?E_MAX_POS, V0, max(element(?E_MAX_POS, Val1), element(?E_MAX_POS, Val2))),
+    lists:foldl(
+        fun(Pos, Acc) ->
+            Value = element(Pos, Val1) + element(Pos, Val2),
+            setelement(Pos, Acc, Value)
+        end,
+        V1,
+        lists:seq(?E_TOTAL_POS, Bound)
+    ).
 
 -spec create_object(term(), pos_integer(), float(), float()) -> object().
 create_object(Name, Bound, Gamma, InvLogGamma) ->
-    Header = [Name, Bound, Gamma, InvLogGamma, 0, 0, ?E_MAX_INT, ?E_MIN_INT, 0, 0],
+    Header = [Name, Bound, Gamma, InvLogGamma, ?E_MAX_INT, ?E_MIN_INT, 0, 0, 0, 0],
     Counters = lists:duplicate(Bound, 0),
     Object = Header ++ Counters,
     list_to_tuple(Object).

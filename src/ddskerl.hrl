@@ -33,10 +33,10 @@
 -define(E_BOUND_POS, 2).
 -define(E_GAMMA_POS, 3).
 -define(E_INV_LOG_GAMMA_POS, 4).
--define(E_TOTAL_POS, 5).
--define(E_SUM_POS, 6).
--define(E_MIN_POS, 7).
--define(E_MAX_POS, 8).
+-define(E_MIN_POS, 5).
+-define(E_MAX_POS, 6).
+-define(E_TOTAL_POS, 7).
+-define(E_SUM_POS, 8).
 -define(E_OVERFLOW_POS, 9).
 -define(E_UNDERFLOW_POS, 10).
 -define(E_PREFIX, 10).
