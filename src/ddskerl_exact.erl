@@ -42,7 +42,7 @@ sum(#ddskerl_exact{sum = Sum}) ->
 
 ?DOC("Insert a value into the DDSketch.").
 -spec insert(ddsketch(), number()) -> ddsketch().
-insert(#ddskerl_exact{data = Data, total = Total, sum = Sum} = S, Val) when 0 < Val ->
+insert(#ddskerl_exact{data = Data, total = Total, sum = Sum} = S, Val) when 0 =< Val ->
     NewData = maps:update_with(Val, fun(X) -> X + 1 end, 1, Data),
     S#ddskerl_exact{data = NewData, total = Total + 1, sum = Sum + Val}.
 

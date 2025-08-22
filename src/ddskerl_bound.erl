@@ -91,7 +91,7 @@ insert(
         bound = Bound
     } = S,
     Val
-) when Val > 0 ->
+) when 0 =< Val ->
     Pos = ceil(math:log2(Val) * InvLogGamma),
     NewData =
         case gb_trees:is_defined(Pos, Data) of

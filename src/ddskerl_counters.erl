@@ -110,7 +110,7 @@ reset(#ddskerl_counters{ref = Ref, min_max = MinMax, bound = Bound, width = Widt
 
 ?DOC("Insert a value into the DDSketch").
 -spec insert(ddsketch(), Value :: number()) -> ddsketch().
-insert(#ddskerl_counters{ref = Ref, min_max = MinMax} = S, Val) when 0 < Val, Val =< 1 ->
+insert(#ddskerl_counters{ref = Ref, min_max = MinMax} = S, Val) when 0 =< Val, Val =< 1 ->
     counters:add(Ref, ?C_TOTAL_POS, 1),
     counters:add(Ref, ?C_UNDERFLOW_POS, 1),
     update_min_max_sum(Ref, MinMax, round(Val), erlang:system_info(scheduler_id)),

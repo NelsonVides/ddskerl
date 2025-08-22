@@ -83,7 +83,7 @@ insert(
     } = S,
     Val
 ) when
-    Val > 0
+    0 =< Val
 ->
     Bin = ceil(math:log2(Val) * InvLogGamma),
     NewData = maps:update_with(Bin, fun(X) -> X + 1 end, 1, Data),

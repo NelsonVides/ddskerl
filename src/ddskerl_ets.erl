@@ -144,7 +144,7 @@ insert(#ddskerl_ets{ref = Ref, name = Name} = S, Val) ->
 
 ?DOC("Insert a value into the DDSketch.").
 -spec insert(ets:tab(), term(), number()) -> any().
-insert(Ref, Name, Val) when 0 < Val, Val =< 1 ->
+insert(Ref, Name, Val) when 0 =< Val, Val =< 1 ->
     Spec = [{?E_TOTAL_POS, 1}, {?E_UNDERFLOW_POS, 1}],
     update_min_max_sum(Ref, Name, Val),
     ets:update_counter(Ref, Name, Spec);
