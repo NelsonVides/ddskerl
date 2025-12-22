@@ -51,6 +51,9 @@ start_link(Opts) ->
 
 -behaviour(ddskerl).
 
+%% Sentinel value representing negative infinity (log2(0) = -infinity)
+-define(NEG_INFINITY, neg_infinity).
+
 -export([new/1, total/1, sum/1, insert/2, merge/2, quantile/2]).
 
 ?DOC("Options for the DDSketch.").
@@ -92,7 +95,11 @@ insert(
     } = S,
     Val
 ) when 0 =< Val ->
-    Pos = ceil(math:log2(Val) * InvLogGamma),
+    Pos =
+        case Val =:= 0 orelse Val =:= +0.0 of
+            true -> ?NEG_INFINITY;
+            false -> ceil(math:log2(Val) * InvLogGamma)
+        end,
     NewData =
         case gb_trees:is_defined(Pos, Data) of
             true -> gb_trees:update(Pos, gb_trees:get(Pos, Data) + 1, Data);
@@ -200,7 +207,9 @@ trim_to_max_buckets(Data, Bound) ->
     end.
 
 -compile({inline, [result/2]}).
--spec result(number(), non_neg_integer()) -> float().
+-spec result(number(), non_neg_integer() | atom()) -> float().
+result(_, ?NEG_INFINITY) ->
+    0.0;
 result(_, 0) ->
     0.0;
 result(Gamma, Pos) ->

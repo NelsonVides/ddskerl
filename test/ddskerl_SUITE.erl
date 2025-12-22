@@ -35,7 +35,14 @@ tests_ets_tuples() ->
 
 -spec tests() -> [atom()].
 tests() ->
-    [get_quantile_test, zero_test, sum_test, merge_test, prop_quantile_error_test].
+    [
+        get_quantile_test,
+        zero_test,
+        zero_insert_test,
+        sum_test,
+        merge_test,
+        prop_quantile_error_test
+    ].
 
 -spec init_per_suite(ct_suite:ct_config()) -> ct_suite:ct_config().
 init_per_suite(Config) ->
@@ -160,6 +167,45 @@ zero_test(Config) ->
     Sketch = estimate_sketch(Module, [], ?FUNCTION_NAME, RelativeError, Bound),
     Q = Module:quantile(Sketch, 0.5),
     ?assertEqual(0.0, Q, #{sketch => Sketch, q => Q}).
+
+zero_insert_test(Config) ->
+    Module = proplists:get_value(module, Config),
+    zero_insert_test(Config, Module).
+
+zero_insert_test(_, Module) when ddskerl_ets =:= Module; ddskerl_counters =:= Module ->
+    {skip, aa};
+zero_insert_test(_, Module) ->
+    RelativeError = 0.01,
+    Bound = bucket_size(10, RelativeError),
+    Opts = #{
+        ets_table => ?FUNCTION_NAME, name => make_ref(), error => RelativeError, bound => Bound
+    },
+    Sketch0 = Module:new(Opts),
+    %% Test inserting 0.0 (float) - this should not throw an error
+    %% 0 represents negative infinity (log2(0) = -infinity)
+    Sketch1 = Module:insert(Sketch0, 0.0),
+    ?assertEqual(1, Module:total(Sketch1)),
+    ?assertEqual(0.0, float(Module:sum(Sketch1))),
+    Q = float(Module:quantile(Sketch1, 0.5)),
+    ?assertEqual(0.0, Q, #{sketch => Sketch1, q => Q}),
+    %% Test inserting integer 0 - this should also not throw an error
+    Sketch2 = Module:insert(Sketch1, 0),
+    ?assertEqual(2, Module:total(Sketch2)),
+    ?assertEqual(0.0, float(Module:sum(Sketch2))),
+    %% Test inserting multiple 0.0 values
+    Sketch3 = Module:insert(Sketch2, 0.0),
+    ?assertEqual(3, Module:total(Sketch3)),
+    ?assertEqual(0.0, float(Module:sum(Sketch3))),
+    %% Test inserting 0.0 along with other values
+    Sketch4 = lists:foldl(fun(V, S) -> Module:insert(S, V) end, Sketch0, [0.0, 1.0, 2.0, 0.0]),
+    ?assertEqual(4, Module:total(Sketch4)),
+    ?assertEqual(3.0, Module:sum(Sketch4)),
+    %% Test that quantile 0.0 returns the minimum (which should be the neg_infinity value)
+    MinQ = Module:quantile(Sketch4, 0.0),
+    ?assertEqual(0.0, MinQ, #{sketch => Sketch4, q => MinQ}),
+    %% Test that quantile 1.0 returns the maximum (which should be 2.0)
+    MaxQ = Module:quantile(Sketch4, 1.0),
+    ?assertEqual(2.0, MaxQ, #{sketch => Sketch4, q => MaxQ}).
 
 sum_test(Config) ->
     Module = proplists:get_value(module, Config),
