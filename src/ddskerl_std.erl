@@ -48,6 +48,9 @@ start_link(Opts) ->
 
 -behaviour(ddskerl).
 
+%% Sentinel value representing negative infinity (log2(0) = -infinity)
+-define(NEG_INFINITY, neg_infinity).
+
 -export([new/1, total/1, sum/1, insert/2, merge/2, quantile/2]).
 
 ?DOC("Options for the DDSketch.").
@@ -85,7 +88,11 @@ insert(
 ) when
     0 =< Val
 ->
-    Bin = ceil(math:log2(Val) * InvLogGamma),
+    Bin =
+        case Val =:= 0 orelse Val =:= +0.0 of
+            true -> ?NEG_INFINITY;
+            false -> ceil(math:log2(Val) * InvLogGamma)
+        end,
     NewData = maps:update_with(Bin, fun(X) -> X + 1 end, 1, Data),
     S#ddskerl_std{
         data = NewData, total = Total + 1, sum = Sum + Val, min = min(Min, Val), max = max(Max, Val)
@@ -110,7 +117,18 @@ quantile(#ddskerl_std{data = Data, gamma = Gamma, total = Total}, Quantile) when
     end.
 
 get_quantile(Data, TotalQuantile, AccumulatedRank, Data, Gamma) ->
-    SortedData = lists:sort(fun({Pos1, _}, {Pos2, _}) -> Pos1 =< Pos2 end, maps:to_list(Data)),
+    %% Sort data with neg_infinity first, then numeric positions
+    SortedData = lists:sort(
+        fun({Pos1, _}, {Pos2, _}) ->
+            case {Pos1, Pos2} of
+                {?NEG_INFINITY, ?NEG_INFINITY} -> false;
+                {?NEG_INFINITY, _} -> true;
+                {_, ?NEG_INFINITY} -> false;
+                _ -> Pos1 =< Pos2
+            end
+        end,
+        maps:to_list(Data)
+    ),
     try
         lists:foldl(
             fun({Pos, Val}, Acc) ->
@@ -148,7 +166,9 @@ merge(
     }.
 
 -compile({inline, [result/2]}).
--spec result(number(), non_neg_integer()) -> float().
+-spec result(number(), non_neg_integer() | atom()) -> float().
+result(_, ?NEG_INFINITY) ->
+    0.0;
 result(_, 0) ->
     0.0;
 result(Gamma, Pos) ->
