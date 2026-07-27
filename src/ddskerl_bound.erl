@@ -1,12 +1,5 @@
 -module(ddskerl_bound).
--if(?OTP_RELEASE >= 27).
--define(MODULEDOC(Str), -moduledoc(Str)).
--define(DOC(Str), -doc(Str)).
--else.
--define(MODULEDOC(Str), -compile([])).
--define(DOC(Str), -compile([])).
--endif.
-?MODULEDOC("""
+-moduledoc """
 DDSketch implementation in Erlang.
 
 This implements an bounded bucket count, that is, on a degenerate case,
@@ -45,7 +38,7 @@ start_link(Opts) ->
 >    {noreply, ddskerl_bound:insert(Sketch, Value)}.
 > ...
 > ```
-""").
+""".
 
 -include("./ddskerl.hrl").
 
@@ -56,32 +49,32 @@ start_link(Opts) ->
 
 -export([new/1, total/1, sum/1, insert/2, merge/2, quantile/2]).
 
-?DOC("Options for the DDSketch.").
+-doc "Options for the DDSketch.".
 -type opts() :: #{error := float(), bound := non_neg_integer()}.
 
-?DOC("DDSketch instance.").
+-doc "DDSketch instance.".
 -opaque ddsketch() :: #ddskerl_bound{}.
 
 -export_type([ddsketch/0, opts/0]).
 
-?DOC("Create a new DDSketch instance.").
+-doc "Create a new DDSketch instance.".
 -spec new(opts()) -> ddsketch().
 new(#{error := Err, bound := Bound}) ->
     Gamma = (1 + Err) / (1 - Err),
     InvLogGamma = 1.0 / math:log2(Gamma),
     #ddskerl_bound{bound = Bound, gamma = Gamma, inv_log_gamma = InvLogGamma}.
 
-?DOC("Get the total number of elements in the DDSketch.").
+-doc "Get the total number of elements in the DDSketch.".
 -spec total(ddsketch()) -> non_neg_integer().
 total(#ddskerl_bound{total = Total}) ->
     Total.
 
-?DOC("Get the sum of elements in the DDSketch.").
+-doc "Get the sum of elements in the DDSketch.".
 -spec sum(ddsketch()) -> number().
 sum(#ddskerl_bound{sum = Sum}) ->
     Sum.
 
-?DOC("Insert a value into the DDSketch.").
+-doc "Insert a value into the DDSketch.".
 -spec insert(ddsketch(), number()) -> ddsketch().
 insert(
     #ddskerl_bound{
@@ -128,7 +121,7 @@ insert(
             }
     end.
 
-?DOC("Calculate the quantile of a DDSketch.").
+-doc "Calculate the quantile of a DDSketch.".
 -spec quantile(ddsketch(), float()) -> float() | undefined.
 quantile(#ddskerl_bound{min = Min}, +0.0) ->
     Min;
@@ -160,7 +153,7 @@ get_quantile(Data, Gamma, TotalQuantile, AccRank, {Pos, Count, NextIter}) ->
             get_quantile(Data, Gamma, TotalQuantile, NewAccRank, gb_trees:next(NextIter))
     end.
 
-?DOC("Merge two DDSketch instances.").
+-doc "Merge two DDSketch instances.".
 -spec merge(ddsketch(), ddsketch()) -> ddsketch().
 merge(
     #ddskerl_bound{

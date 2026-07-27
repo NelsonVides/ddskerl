@@ -1,12 +1,5 @@
 -module(ddskerl_counters).
--if(?OTP_RELEASE >= 27).
--define(MODULEDOC(Str), -moduledoc(Str)).
--define(DOC(Str), -doc(Str)).
--else.
--define(MODULEDOC(Str), -compile([])).
--define(DOC(Str), -compile([])).
--endif.
-?MODULEDOC("""
+-moduledoc """
 DDSketch implementation in Erlang.
 
 This implements an optimised pre-allocated bounded bucket count, that is, on a degenerate case,
@@ -51,7 +44,7 @@ If we're measuring picoseconds, this would suffice to measure 107 days.
 > ...
 > ddskerl_counters:quantile(persistent_term:get(my_summary), Q).
 > ```
-""").
+""".
 
 -include("./ddskerl.hrl").
 
@@ -59,15 +52,15 @@ If we're measuring picoseconds, this would suffice to measure 107 days.
 
 -export([new/1, total/1, sum/1, insert/2, merge/2, reset/1, quantile/2]).
 
-?DOC("Options for the DDSketch").
+-doc "Options for the DDSketch".
 -type opts() :: #{error := float(), bound := non_neg_integer()}.
 
-?DOC("DDSketch instance").
+-doc "DDSketch instance".
 -opaque ddsketch() :: #ddskerl_counters{}.
 
 -export_type([ddsketch/0, opts/0]).
 
-?DOC("Create a new DDSketch instance").
+-doc "Create a new DDSketch instance".
 -spec new(opts()) -> ddsketch().
 new(#{error := Err, bound := Bound}) ->
     %% We're going to keep thread-local mins and maxs, in order to avoid contention.
@@ -90,17 +83,17 @@ new(#{error := Err, bound := Bound}) ->
         inv_log_gamma = InvLogGamma
     }.
 
-?DOC("Get the total number of elements in the DDSketch").
+-doc "Get the total number of elements in the DDSketch".
 -spec total(ddsketch()) -> non_neg_integer().
 total(#ddskerl_counters{ref = Ref}) ->
     counters:get(Ref, ?C_TOTAL_POS).
 
-?DOC("Get the sum of elements in the DDSketch").
+-doc "Get the sum of elements in the DDSketch".
 -spec sum(ddsketch()) -> non_neg_integer().
 sum(#ddskerl_counters{ref = Ref}) ->
     counters:get(Ref, ?C_SUM_POS).
 
-?DOC("Reset the DDSketch values to zero").
+-doc "Reset the DDSketch values to zero".
 -spec reset(ddsketch()) -> ddsketch().
 reset(#ddskerl_counters{ref = Ref, min_max = MinMax, bound = Bound, width = Width} = S) ->
     [atomics:put(MinMax, Ix, ?C_MAX_INT) || Ix <- lists:seq(1, Width, 2)],
@@ -108,7 +101,7 @@ reset(#ddskerl_counters{ref = Ref, min_max = MinMax, bound = Bound, width = Widt
     [counters:put(Ref, Pos, 0) || Pos <- lists:seq(?C_TOTAL_POS, ?C_OVERFLOW_POS(Bound))],
     S.
 
-?DOC("Insert a value into the DDSketch").
+-doc "Insert a value into the DDSketch".
 -spec insert(ddsketch(), Value :: number()) -> ddsketch().
 insert(#ddskerl_counters{ref = Ref, min_max = MinMax} = S, Val) when 0 =< Val, Val =< 1 ->
     counters:add(Ref, ?C_TOTAL_POS, 1),
@@ -173,7 +166,7 @@ loop_max(MinMax, Index, Expected, Value) ->
             ok
     end.
 
-?DOC("Calculate the quantile of a DDSketch").
+-doc "Calculate the quantile of a DDSketch".
 -spec quantile(ddsketch(), Quantile :: float()) -> Value :: float() | undefined.
 quantile(#ddskerl_counters{min_max = MinMax, width = Width}, +0.0) ->
     Mins = [atomics:get(MinMax, Ix) || Ix <- lists:seq(1, Width, 2)],
@@ -209,7 +202,7 @@ get_quantile(Ref, Gamma, TotalQuantile, AccRank, Pos, OverflowPos) ->
     NewAccRank = AccRank + Value,
     get_quantile(Ref, Gamma, TotalQuantile, NewAccRank, NewPos, OverflowPos).
 
-?DOC("Merge two DDSketch instances").
+-doc "Merge two DDSketch instances".
 -spec merge(ddsketch(), ddsketch()) -> ddsketch().
 merge(
     #ddskerl_counters{ref = Ref1, min_max = MinMax1, width = Width, bound = MaxBuckets, gamma = G} =

@@ -1,12 +1,5 @@
 -module(ddskerl_std).
--if(?OTP_RELEASE >= 27).
--define(MODULEDOC(Str), -moduledoc(Str)).
--define(DOC(Str), -doc(Str)).
--else.
--define(MODULEDOC(Str), -compile([])).
--define(DOC(Str), -compile([])).
--endif.
-?MODULEDOC("""
+-moduledoc """
 DDSketch implementation in Erlang.
 
 This implements an unbounded bucket count, that is, on a degenerate case,
@@ -42,7 +35,7 @@ start_link(Opts) ->
 >    {noreply, ddskerl_std:insert(Sketch, Value)}.
 > ...
 > ```
-""").
+""".
 
 -include("./ddskerl.hrl").
 
@@ -53,32 +46,32 @@ start_link(Opts) ->
 
 -export([new/1, total/1, sum/1, insert/2, merge/2, quantile/2]).
 
-?DOC("Options for the DDSketch.").
+-doc "Options for the DDSketch.".
 -type opts() :: #{error := float(), _ => _}.
 
-?DOC("DDSketch instance.").
+-doc "DDSketch instance.".
 -opaque ddsketch() :: #ddskerl_std{}.
 
 -export_type([ddsketch/0, opts/0]).
 
-?DOC("Create a new DDSketch instance.").
+-doc "Create a new DDSketch instance.".
 -spec new(opts()) -> ddsketch().
 new(#{error := Err}) ->
     Gamma = (1 + Err) / (1 - Err),
     InvLogGamma = 1.0 / math:log2(Gamma),
     #ddskerl_std{gamma = Gamma, inv_log_gamma = InvLogGamma}.
 
-?DOC("Get the total number of elements in the DDSketch.").
+-doc "Get the total number of elements in the DDSketch.".
 -spec total(ddsketch()) -> non_neg_integer().
 total(#ddskerl_std{total = Total}) ->
     Total.
 
-?DOC("Get the sum of elements in the DDSketch.").
+-doc "Get the sum of elements in the DDSketch.".
 -spec sum(ddsketch()) -> number().
 sum(#ddskerl_std{sum = Sum}) ->
     Sum.
 
-?DOC("Insert a value into the DDSketch.").
+-doc "Insert a value into the DDSketch.".
 -spec insert(ddsketch(), number()) -> ddsketch().
 insert(
     #ddskerl_std{
@@ -98,7 +91,7 @@ insert(
         data = NewData, total = Total + 1, sum = Sum + Val, min = min(Min, Val), max = max(Max, Val)
     }.
 
-?DOC("Calculate the quantile of a DDSketch.").
+-doc "Calculate the quantile of a DDSketch.".
 -spec quantile(ddsketch(), float()) -> float() | undefined.
 quantile(#ddskerl_std{min = Min}, +0.0) ->
     Min;
@@ -150,7 +143,7 @@ get_quantile(Data, TotalQuantile, AccumulatedRank, Data, Gamma) ->
             result(Gamma, Pos)
     end.
 
-?DOC("Merge two DDSketch instances.").
+-doc "Merge two DDSketch instances.".
 -spec merge(ddsketch(), ddsketch()) -> ddsketch().
 merge(
     #ddskerl_std{gamma = G, data = Data1, total = Total1, sum = Sum1, min = Min1, max = Max1} = S1,

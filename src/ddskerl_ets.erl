@@ -1,12 +1,5 @@
 -module(ddskerl_ets).
--if(?OTP_RELEASE >= 27).
--define(MODULEDOC(Str), -moduledoc(Str)).
--define(DOC(Str), -doc(Str)).
--else.
--define(MODULEDOC(Str), -compile([])).
--define(DOC(Str), -compile([])).
--endif.
-?MODULEDOC("""
+-moduledoc """
 DDSketch implementation in Erlang.
 
 This implements an optimised pre-allocated bounded bucket count, that is, on a degenerate case,
@@ -44,7 +37,7 @@ If we're measuring picoseconds, this would suffice to measure 107 days.
 > ...
 > ddskerl_ets:quantile(Table, Name, Q).
 > ```
-""").
+""".
 
 -include("./ddskerl.hrl").
 
@@ -68,12 +61,12 @@ If we're measuring picoseconds, this would suffice to measure 107 days.
     quantile_tuple/2
 ]).
 
-?DOC("""
+-doc """
 Options for the DDSketch.
 
 `ets_table` refers to the table weher the sketch is stored,
 `name` is the key to use when storing the sketch in the ets table.
-""").
+""".
 -type opts() :: #{
     ets_table := ets:tab(),
     name := term(),
@@ -81,20 +74,20 @@ Options for the DDSketch.
     bound := non_neg_integer()
 }.
 
-?DOC("DDSketch instance.").
+-doc "DDSketch instance.".
 -opaque ddsketch() :: #ddskerl_ets{}.
-?DOC("DDSketch tuple.").
+-doc "DDSketch tuple.".
 -opaque object() :: tuple().
 
 -export_type([ddsketch/0, opts/0, object/0]).
 
-?DOC("Create a new DDSketch instance.").
+-doc "Create a new DDSketch instance.".
 -spec new(opts()) -> ddsketch().
 new(#{ets_table := Ref, name := Name, error := Err, bound := Bound}) ->
     new(Ref, Name, Err, Bound),
     #ddskerl_ets{ref = Ref, name = Name}.
 
-?DOC("Create a new DDSketch instance.").
+-doc "Create a new DDSketch instance.".
 -spec new(ets:table(), term(), float(), non_neg_integer()) -> boolean().
 new(Ref, Name, Err, Bound) ->
     Gamma = (1 + Err) / (1 - Err),
@@ -102,33 +95,33 @@ new(Ref, Name, Err, Bound) ->
     Object = create_object(Name, Bound, Gamma, InvLogGamma),
     ets:insert_new(Ref, Object).
 
-?DOC("Get the total number of elements in the DDSketch.").
+-doc "Get the total number of elements in the DDSketch.".
 -spec total(ddsketch()) -> non_neg_integer().
 total(#ddskerl_ets{ref = Ref, name = Name}) ->
     total(Ref, Name).
 
-?DOC("Get the total number of elements in the DDSketch.").
+-doc "Get the total number of elements in the DDSketch.".
 -spec total(ets:table(), term()) -> non_neg_integer().
 total(Ref, Name) ->
     ets:lookup_element(Ref, Name, ?E_TOTAL_POS).
 
-?DOC("Get the sum of elements in the DDSketch.").
+-doc "Get the sum of elements in the DDSketch.".
 -spec sum(ddsketch()) -> non_neg_integer().
 sum(#ddskerl_ets{ref = Ref, name = Name}) ->
     sum(Ref, Name).
 
-?DOC("Get the sum of elements in the DDSketch.").
+-doc "Get the sum of elements in the DDSketch.".
 -spec sum(ets:table(), term()) -> non_neg_integer().
 sum(Ref, Name) ->
     ets:lookup_element(Ref, Name, ?E_SUM_POS).
 
-?DOC("Reset the DDSketch values to zero").
+-doc "Reset the DDSketch values to zero".
 -spec reset(ddsketch()) -> ddsketch().
 reset(#ddskerl_ets{ref = Ref, name = Name} = S) ->
     reset(Ref, Name),
     S.
 
-?DOC("Reset the DDSketch values to zero").
+-doc "Reset the DDSketch values to zero".
 -spec reset(ets:tab(), term()) -> boolean().
 reset(Ref, Name) ->
     Gamma = ets:lookup_element(Ref, Name, ?E_GAMMA_POS),
@@ -136,13 +129,13 @@ reset(Ref, Name) ->
     InvLogGamma = ets:lookup_element(Ref, Name, ?E_INV_LOG_GAMMA_POS),
     ets:insert(Ref, create_object(Name, Bound, Gamma, InvLogGamma)).
 
-?DOC("Insert a value into the DDSketch.").
+-doc "Insert a value into the DDSketch.".
 -spec insert(ddsketch(), number()) -> ddsketch().
 insert(#ddskerl_ets{ref = Ref, name = Name} = S, Val) ->
     insert(Ref, Name, Val),
     S.
 
-?DOC("Insert a value into the DDSketch.").
+-doc "Insert a value into the DDSketch.".
 -spec insert(ets:tab(), term(), number()) -> any().
 insert(Ref, Name, Val) when 0 =< Val, Val =< 1 ->
     Spec = [{?E_TOTAL_POS, 1}, {?E_UNDERFLOW_POS, 1}],
@@ -173,12 +166,12 @@ update_min_max_sum(Ref, Name, Value) ->
     Max = ets:lookup_element(Ref, Name, ?E_MAX_POS),
     Max < Value andalso ets:update_element(Ref, Name, [{?E_MAX_POS, Value}]).
 
-?DOC("Calculate the quantile of a DDSketch.").
+-doc "Calculate the quantile of a DDSketch.".
 -spec quantile(ddsketch(), float()) -> float() | undefined.
 quantile(#ddskerl_ets{ref = Ref, name = Name}, Q) ->
     quantile(Ref, Name, Q).
 
-?DOC("Calculate the quantile of a DDSketch.").
+-doc "Calculate the quantile of a DDSketch.".
 -spec quantile(ets:tab(), term(), float()) -> float() | undefined.
 quantile(Ref, Name, +0.0) ->
     ets:lookup_element(Ref, Name, ?E_MIN_POS);
@@ -190,13 +183,13 @@ quantile(Ref, Name, Quantile) when
     [Element] = ets:lookup(Ref, Name),
     quantile_tuple(Element, Quantile).
 
-?DOC("Merge the second DDSketch instance into the first").
+-doc "Merge the second DDSketch instance into the first".
 -spec merge(ddsketch(), ddsketch()) -> ddsketch().
 merge(#ddskerl_ets{ref = Ref1, name = Name1} = S1, #ddskerl_ets{ref = Ref2, name = Name2}) ->
     merge(Ref1, Name1, Ref2, Name2),
     S1.
 
-?DOC("Merge the second DDSketch instance into the first").
+-doc "Merge the second DDSketch instance into the first".
 -spec merge(ets:tab(), term(), ets:tab(), term()) -> any().
 merge(Ref1, Name1, Ref2, Name2) ->
     [Val2] = ets:lookup(Ref2, Name2),
@@ -233,29 +226,29 @@ merge_counts(Ref1, Name1, Val2) ->
         lists:seq(?E_TOTAL_POS, Bound)
     ).
 
-?DOC("Merge the second DDSketch instance into the first").
+-doc "Merge the second DDSketch instance into the first".
 -spec merge_out(ddsketch(), ddsketch()) -> tuple().
 merge_out(#ddskerl_ets{ref = Ref1, name = Name1}, #ddskerl_ets{ref = Ref2, name = Name2}) ->
     merge_out(Ref1, Name1, Ref2, Name2).
 
-?DOC("Merges the second DDSketch instance into the first on the underlying tuples").
+-doc "Merges the second DDSketch instance into the first on the underlying tuples".
 -spec merge_out(ets:tab(), term(), ets:tab(), term()) -> tuple().
 merge_out(Ref1, Name1, Ref2, Name2) ->
     [Val1 | _] = ets:lookup(Ref1, Name1),
     [Val2 | _] = ets:lookup(Ref2, Name2),
     merge_tuples(Val1, Val2).
 
-?DOC("Get the total number of elements in the DDSketch.").
+-doc "Get the total number of elements in the DDSketch.".
 -spec total_tuple(tuple()) -> non_neg_integer().
 total_tuple(Val) ->
     element(?E_TOTAL_POS, Val).
 
-?DOC("Get the sum of elements in the DDSketch.").
+-doc "Get the sum of elements in the DDSketch.".
 -spec sum_tuple(tuple()) -> non_neg_integer().
 sum_tuple(Val) ->
     element(?E_SUM_POS, Val).
 
-?DOC("Merges the second DDSketch instance into the first on the underlying tuples").
+-doc "Merges the second DDSketch instance into the first on the underlying tuples".
 -spec merge_tuples(tuple(), tuple()) -> tuple().
 merge_tuples(Val1, Val2) ->
     Bound = element(?E_BOUND_POS, Val1),
@@ -272,7 +265,7 @@ merge_tuples(Val1, Val2) ->
         lists:seq(?E_TOTAL_POS, Bound)
     ).
 
-?DOC("Calculate the quantile of a DDSketch.").
+-doc "Calculate the quantile of a DDSketch.".
 -spec quantile_tuple(tuple(), float()) -> float() | undefined.
 quantile_tuple(Val, +0.0) ->
     element(?E_MIN_POS, Val);
