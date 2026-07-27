@@ -130,29 +130,26 @@ quantile(#ddskerl_bound{max = Max}, 1.0) ->
 quantile(#ddskerl_bound{data = Data, total = Total, gamma = Gamma}, Quantile) when
     0.0 < Quantile, Quantile < 1.0
 ->
-    % The zero bucket ranks first, but numbers sort before atoms,
-    % so the tree holds it last: it has to be accounted for up front
-    AccRank =
-        case gb_trees:lookup(?NEG_INFINITY, Data) of
-            none -> 0;
-            {value, Zeroes} -> Zeroes
+    % The zero bucket ranks first, but numbers sort before atoms, so the tree
+    % holds it last: it is taken out of the traversal and accounted for up front
+    {Zeroes, Indexed} =
+        case gb_trees:take_any(?NEG_INFINITY, Data) of
+            error -> {0, Data};
+            {Count, Rest} -> {Count, Rest}
         end,
     TotalQuantile = Total * Quantile,
-    case TotalQuantile =< AccRank of
+    case TotalQuantile =< Zeroes of
         true ->
             0.0;
         false ->
             get_quantile(
-                Data, Gamma, TotalQuantile, AccRank, gb_trees:next(gb_trees:iterator(Data))
+                Indexed, Gamma, TotalQuantile, Zeroes, gb_trees:next(gb_trees:iterator(Indexed))
             )
     end.
 
 get_quantile(_, _, _, _, none) ->
     % Should not happen if Total > 0
     undefined;
-get_quantile(Data, Gamma, TotalQuantile, AccRank, {?NEG_INFINITY, _, NextIter}) ->
-    % Accounted for before the traversal started
-    get_quantile(Data, Gamma, TotalQuantile, AccRank, gb_trees:next(NextIter));
 get_quantile(Data, Gamma, TotalQuantile, AccRank, {Pos, Count, NextIter}) ->
     NewAccRank = AccRank + Count,
     case TotalQuantile =< NewAccRank of
@@ -259,8 +256,7 @@ trim_to_max_buckets(Data, Bound) ->
     end.
 
 -compile({inline, [result/2]}).
--spec result(number(), integer() | ?NEG_INFINITY) -> float().
-result(_, ?NEG_INFINITY) ->
-    0.0;
+%% The zero bucket never reaches here, it is taken out of the traversal upfront
+-spec result(number(), integer()) -> float().
 result(Gamma, Pos) ->
     2 * math:pow(Gamma, Pos) / (Gamma + 1).

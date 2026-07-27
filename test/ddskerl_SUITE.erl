@@ -47,6 +47,7 @@ tests() ->
         buckets_empty_test,
         buckets_test,
         buckets_with_zero_test,
+        buckets_overflow_test,
         buckets_foldl_test,
         prop_quantile_error_test,
         prop_buckets_test
@@ -143,7 +144,10 @@ quantile_ets_tuple(_) ->
     Sketch = #ddskerl_ets{name = Name} = prepare_basic_ets_sketch(?FUNCTION_NAME, RelativeError),
     [Tuple] = ets:lookup(?FUNCTION_NAME, Name),
     Quantile = ddskerl_ets:quantile_tuple(Tuple, 0.50),
-    assert_quantile(6, Quantile, RelativeError, Quantile, Sketch).
+    assert_quantile(6, Quantile, RelativeError, Quantile, Sketch),
+    %% The extremes are tracked exactly rather than estimated from a bucket
+    ?assertEqual(hd(basic_ets_sample()), ddskerl_ets:quantile_tuple(Tuple, 0.0)),
+    ?assertEqual(lists:last(basic_ets_sample()), ddskerl_ets:quantile_tuple(Tuple, 1.0)).
 
 merge_ets_tuples(_) ->
     RelativeError = 0.02,
@@ -199,6 +203,28 @@ buckets_with_zero_test(Config) ->
     [#{index := First, count := Count} | _] = Buckets,
     ?assert(lists:member(First, [zero, underflow]), #{buckets => Buckets}),
     ?assertEqual(2, Count, #{buckets => Buckets}).
+
+%% Values too large for the last preallocated bucket are accounted for in the
+%% overflow bucket, which is the last one exported and is unbounded above.
+buckets_overflow_test(Config) ->
+    Module = proplists:get_value(module, Config),
+    buckets_overflow_test(Config, Module).
+
+%% The unbounded implementations create buckets on demand, so nothing overflows
+buckets_overflow_test(_, Module) when ddskerl_std =:= Module; ddskerl_bound =:= Module ->
+    {skip, no_preallocated_bounds};
+buckets_overflow_test(_, Module) ->
+    RelativeError = 0.02,
+    Bound = bucket_size(10, RelativeError),
+    Sample = [2, 4, 1 bsl 40],
+    Sketch = estimate_sketch(Module, Sample, ?FUNCTION_NAME, RelativeError, Bound),
+    Buckets = Module:buckets(Sketch),
+    assert_buckets(Buckets, Sample, Module:total(Sketch)),
+    ?assertMatch(
+        [#{index := overflow, upper := infinity, count := 1} | _],
+        lists:reverse(Buckets),
+        #{buckets => Buckets}
+    ).
 
 buckets_foldl_test(Config) ->
     Module = proplists:get_value(module, Config),
@@ -340,8 +366,9 @@ merge_totals_test(Config) ->
     Module = proplists:get_value(module, Config),
     RelativeError = 0.02,
     Bound = bucket_size(100, RelativeError),
+    %% The samples share values, so the merge has to add up colliding buckets
     SampleA = [2, 4, 6],
-    SampleB = [8, 16, 32, 64],
+    SampleB = [4, 6, 16, 32],
     SketchA = estimate_sketch(Module, SampleA, ?FUNCTION_NAME, RelativeError, Bound),
     SketchB = estimate_sketch(Module, SampleB, ?FUNCTION_NAME, RelativeError, Bound),
     Merged = Module:merge(SketchA, SketchB),

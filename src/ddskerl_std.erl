@@ -132,16 +132,15 @@ get_quantile(Data, TotalQuantile, AccumulatedRank, Data, Gamma) ->
             result(Gamma, Pos)
     end.
 
-%% Sort data with neg_infinity first, then numeric positions
+%% The zero bucket ranks before every indexed one, but numbers sort before atoms,
+%% so it is taken out of the sort and put back in front of it
 -spec sorted_data(#{integer() | ?NEG_INFINITY => non_neg_integer()}) ->
     [{integer() | ?NEG_INFINITY, non_neg_integer()}].
 sorted_data(Data) ->
-    lists:sort(fun compare_positions/2, maps:to_list(Data)).
-
-compare_positions({?NEG_INFINITY, _}, {?NEG_INFINITY, _}) -> false;
-compare_positions({?NEG_INFINITY, _}, _) -> true;
-compare_positions(_, {?NEG_INFINITY, _}) -> false;
-compare_positions({Pos1, _}, {Pos2, _}) -> Pos1 =< Pos2.
+    case maps:take(?NEG_INFINITY, Data) of
+        error -> lists:sort(maps:to_list(Data));
+        {Zeroes, Indexed} -> [{?NEG_INFINITY, Zeroes} | lists:sort(maps:to_list(Indexed))]
+    end.
 
 -doc """
 Fold over all non-empty buckets of the DDSketch, in ascending order of value.
