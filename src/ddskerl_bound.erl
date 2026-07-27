@@ -130,11 +130,17 @@ quantile(#ddskerl_bound{max = Max}, 1.0) ->
 quantile(#ddskerl_bound{data = Data, total = Total, gamma = Gamma}, Quantile) when
     0.0 < Quantile, Quantile < 1.0
 ->
-    AccRank = 0,
+    % The zero bucket ranks first, but numbers sort before atoms,
+    % so the tree holds it last: it has to be accounted for up front
+    AccRank =
+        case gb_trees:lookup(?NEG_INFINITY, Data) of
+            none -> 0;
+            {value, Zeroes} -> Zeroes
+        end,
     TotalQuantile = Total * Quantile,
     case TotalQuantile =< AccRank of
         true ->
-            result(Gamma, 0);
+            0.0;
         false ->
             get_quantile(
                 Data, Gamma, TotalQuantile, AccRank, gb_trees:next(gb_trees:iterator(Data))
@@ -144,6 +150,9 @@ quantile(#ddskerl_bound{data = Data, total = Total, gamma = Gamma}, Quantile) wh
 get_quantile(_, _, _, _, none) ->
     % Should not happen if Total > 0
     undefined;
+get_quantile(Data, Gamma, TotalQuantile, AccRank, {?NEG_INFINITY, _, NextIter}) ->
+    % Accounted for before the traversal started
+    get_quantile(Data, Gamma, TotalQuantile, AccRank, gb_trees:next(NextIter));
 get_quantile(Data, Gamma, TotalQuantile, AccRank, {Pos, Count, NextIter}) ->
     NewAccRank = AccRank + Count,
     case TotalQuantile =< NewAccRank of
@@ -250,10 +259,8 @@ trim_to_max_buckets(Data, Bound) ->
     end.
 
 -compile({inline, [result/2]}).
--spec result(number(), non_neg_integer() | atom()) -> float().
+-spec result(number(), integer() | ?NEG_INFINITY) -> float().
 result(_, ?NEG_INFINITY) ->
-    0.0;
-result(_, 0) ->
     0.0;
 result(Gamma, Pos) ->
     2 * math:pow(Gamma, Pos) / (Gamma + 1).

@@ -104,7 +104,7 @@ quantile(#ddskerl_std{data = Data, gamma = Gamma, total = Total}, Quantile) when
     TotalQuantile = Total * Quantile,
     case TotalQuantile =< AccumulatedRank of
         true ->
-            result(Gamma, 0);
+            0.0;
         false ->
             get_quantile(Data, TotalQuantile, AccumulatedRank, Data, Gamma)
     end.
@@ -197,10 +197,8 @@ merge(
     }.
 
 -compile({inline, [result/2]}).
--spec result(number(), non_neg_integer() | atom()) -> float().
+-spec result(number(), integer() | ?NEG_INFINITY) -> float().
 result(_, ?NEG_INFINITY) ->
-    0.0;
-result(_, 0) ->
     0.0;
 result(Gamma, Pos) ->
     2 * math:pow(Gamma, Pos) / (Gamma + 1).

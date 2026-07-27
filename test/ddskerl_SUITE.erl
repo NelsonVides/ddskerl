@@ -41,6 +41,8 @@ tests() ->
         zero_insert_test,
         sum_test,
         merge_test,
+        quantile_with_zero_test,
+        quantile_below_one_test,
         buckets_empty_test,
         buckets_test,
         buckets_with_zero_test,
@@ -297,6 +299,41 @@ assert_merge(Quantile, RelativeError, Sketch1, Sketch2) ->
         #{sketch_one => Sketch1, sketch_two => Sketch2}
     ).
 
+%% Zeroes rank below every other value, so they must be consumed first when
+%% walking the buckets to find a quantile.
+quantile_with_zero_test(Config) ->
+    Module = proplists:get_value(module, Config),
+    quantile_with_zero_test(Config, Module).
+
+%% Only the unbounded implementations keep a bucket of their own for the zeroes;
+%% the preallocated ones account for them in the underflow bucket, together with
+%% every other value up to one.
+quantile_with_zero_test(_, Module) when ddskerl_ets =:= Module; ddskerl_counters =:= Module ->
+    {skip, no_dedicated_zero_bucket};
+quantile_with_zero_test(_, Module) ->
+    RelativeError = 0.01,
+    Bound = bucket_size(100, RelativeError),
+    %% The median of [0, 0, 0, 8, 64] is 0, and of [0, 0, 8, 64, 64] is 8
+    Low = estimate_sketch(Module, [0, 0, 0, 8, 64], ?FUNCTION_NAME, RelativeError, Bound),
+    ?assertEqual(0.0, float(Module:quantile(Low, 0.5)), #{sketch => Low}),
+    High = estimate_sketch(Module, [0, 0, 8, 64, 64], ?FUNCTION_NAME, RelativeError, Bound),
+    assert_within_error(Module:quantile(High, 0.5), 8, RelativeError, High).
+
+%% The bucket holding the values up to one is a bucket like any other, and must
+%% be estimated as such rather than collapsed onto zero.
+quantile_below_one_test(Config) ->
+    Module = proplists:get_value(module, Config),
+    RelativeError = 0.01,
+    Bound = bucket_size(100, RelativeError),
+    Sketch = estimate_sketch(Module, [1, 1, 1, 64, 64], ?FUNCTION_NAME, RelativeError, Bound),
+    assert_within_error(Module:quantile(Sketch, 0.5), 1, RelativeError, Sketch).
+
+assert_within_error(Estimate, Expected, RelativeError, Sketch) ->
+    ?assert(
+        within_relative_error(Estimate, Expected, RelativeError),
+        #{estimate => Estimate, expected => Expected, sketch => Sketch}
+    ).
+
 zero_test(Config) ->
     Module = proplists:get_value(module, Config),
     RelativeError = 0.01,
@@ -368,7 +405,7 @@ prop_quantile_error_test(Config) ->
                     SketchQuantile = Module:quantile(Sketch, Q),
                     ActualQuantile = ddskerl_exact:quantile(Summary, Q),
                     Property =
-                        abs(SketchQuantile / ActualQuantile - 1) =< RelativeError,
+                        within_relative_error(SketchQuantile, ActualQuantile, RelativeError),
                     {Q, SketchQuantile, ActualQuantile, Property}
                 end,
                 quantiles()
@@ -415,8 +452,16 @@ check_sums(Sketch, Summary, Module, RelativeError) ->
 check_quantile(Sketch, Summary, Module, RelativeError, SampleSize, Q) ->
     SketchQuantile = Module:quantile(Sketch, Q),
     ActualQuantile = ddskerl_exact:quantile(Summary, Q),
-    abs(SketchQuantile - ActualQuantile) =< RelativeError * ActualQuantile andalso
+    within_relative_error(SketchQuantile, ActualQuantile, RelativeError) andalso
         SampleSize =:= Module:total(Sketch).
+
+%% A bucket estimate meets the relative error bound with equality at both ends of
+%% the bucket, so a value sitting exactly on a bucket boundary, as `1` always does,
+%% leaves the comparison to be decided by floating point rounding. Measured over
+%% the whole range of errors the sketches accept, the estimate never overshoots the
+%% bound by more than 1.0e-12 relative, so a slack well above that settles it.
+within_relative_error(Estimate, Expected, RelativeError) ->
+    abs(Estimate - Expected) =< RelativeError * Expected * (1 + 1.0e-9).
 
 estimate_sketch(Module, Sample, T, RelativeError, Bound) ->
     Opts = #{ets_table => T, name => make_ref(), error => RelativeError, bound => Bound},

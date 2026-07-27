@@ -366,12 +366,16 @@ quantile_tuple(Val, 1.0) ->
 quantile_tuple(Val, Quantile) when
     0 < Quantile, Quantile < 1
 ->
-    Gamma = element(?E_GAMMA_POS, Val),
-    Total = element(?E_TOTAL_POS, Val),
-    AccRank = element(?E_UNDERFLOW_POS, Val),
-    TotalQuantile = Total * Quantile,
-    ToIndex = tuple_size(Val) + 2,
-    get_quantile(Val, Gamma, TotalQuantile, AccRank, ?E_PREFIX, ToIndex).
+    case element(?E_TOTAL_POS, Val) of
+        0 ->
+            0.0;
+        Total ->
+            Gamma = element(?E_GAMMA_POS, Val),
+            AccRank = element(?E_UNDERFLOW_POS, Val),
+            TotalQuantile = Total * Quantile,
+            ToIndex = tuple_size(Val) + 2,
+            get_quantile(Val, Gamma, TotalQuantile, AccRank, ?E_PREFIX, ToIndex)
+    end.
 
 -spec get_quantile(
     object(), float(), float(), non_neg_integer(), non_neg_integer(), non_neg_integer()
@@ -396,7 +400,5 @@ create_object(Name, Bound, Gamma, InvLogGamma) ->
 
 -compile({inline, [result/2]}).
 -spec result(number(), integer()) -> number().
-result(_, 0) ->
-    0.0;
 result(Gamma, Pos) ->
     2 * math:pow(Gamma, Pos) / (Gamma + 1).

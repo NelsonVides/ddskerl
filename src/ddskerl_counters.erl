@@ -177,11 +177,15 @@ quantile(#ddskerl_counters{min_max = MinMax, width = Width}, 1.0) ->
 quantile(#ddskerl_counters{ref = Ref, bound = Bound, gamma = Gamma}, Quantile) when
     0 < Quantile, Quantile < 1
 ->
-    Total = counters:get(Ref, ?C_TOTAL_POS),
-    AccRank = counters:get(Ref, ?C_UNDERFLOW_POS),
-    TotalQuantile = Total * Quantile,
-    ToIndex = ?C_OVERFLOW_POS(Bound) + 1,
-    get_quantile(Ref, Gamma, TotalQuantile, AccRank, ?C_PREFIX, ToIndex).
+    case counters:get(Ref, ?C_TOTAL_POS) of
+        0 ->
+            0.0;
+        Total ->
+            AccRank = counters:get(Ref, ?C_UNDERFLOW_POS),
+            TotalQuantile = Total * Quantile,
+            ToIndex = ?C_OVERFLOW_POS(Bound) + 1,
+            get_quantile(Ref, Gamma, TotalQuantile, AccRank, ?C_PREFIX, ToIndex)
+    end.
 
 -spec get_quantile(
     counters:counters_ref(),
@@ -302,7 +306,5 @@ add_counters(Ref1, Ref2, Size, Pos) ->
 
 -compile({inline, [result/2]}).
 -spec result(number(), non_neg_integer()) -> number().
-result(_, 0) ->
-    0.0;
 result(Gamma, Pos) ->
     2 * math:pow(Gamma, Pos) / (Gamma + 1).
