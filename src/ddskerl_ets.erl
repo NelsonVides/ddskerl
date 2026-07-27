@@ -308,15 +308,9 @@ merge_minimum(Ref1, Name1, Val2) ->
 
 merge_counts(Ref1, Name1, Val2) ->
     Bound = ets:lookup_element(Ref1, Name1, ?E_BOUND_POS),
-    lists:foreach(
-        fun(Pos) ->
-            Value1 = ets:lookup_element(Ref1, Name1, Pos),
-            Value2 = element(Pos, Val2),
-            Spec1 = [{Pos, Value1 + Value2}],
-            ets:update_counter(Ref1, Name1, Spec1)
-        end,
-        lists:seq(?E_TOTAL_POS, Bound)
-    ).
+    %% `ets:update_counter/3` takes the increment, so only the second sketch's counts
+    Spec = [{Pos, element(Pos, Val2)} || Pos <- lists:seq(?E_TOTAL_POS, ?E_PREFIX + Bound)],
+    ets:update_counter(Ref1, Name1, Spec).
 
 -doc "Merge the second DDSketch instance into the first".
 -spec merge_out(ddsketch(), ddsketch()) -> tuple().
@@ -354,7 +348,7 @@ merge_tuples(Val1, Val2) ->
             setelement(Pos, Acc, Value)
         end,
         V1,
-        lists:seq(?E_TOTAL_POS, Bound)
+        lists:seq(?E_TOTAL_POS, ?E_PREFIX + Bound)
     ).
 
 -doc "Calculate the quantile of a DDSketch.".

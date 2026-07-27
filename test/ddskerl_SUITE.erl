@@ -41,6 +41,7 @@ tests() ->
         zero_insert_test,
         sum_test,
         merge_test,
+        merge_totals_test,
         quantile_with_zero_test,
         quantile_below_one_test,
         buckets_empty_test,
@@ -332,6 +333,24 @@ assert_within_error(Estimate, Expected, RelativeError, Sketch) ->
     ?assert(
         within_relative_error(Estimate, Expected, RelativeError),
         #{estimate => Estimate, expected => Expected, sketch => Sketch}
+    ).
+
+%% Merging must add the two sketches up, not double-count the first one.
+merge_totals_test(Config) ->
+    Module = proplists:get_value(module, Config),
+    RelativeError = 0.02,
+    Bound = bucket_size(100, RelativeError),
+    SampleA = [2, 4, 6],
+    SampleB = [8, 16, 32, 64],
+    SketchA = estimate_sketch(Module, SampleA, ?FUNCTION_NAME, RelativeError, Bound),
+    SketchB = estimate_sketch(Module, SampleB, ?FUNCTION_NAME, RelativeError, Bound),
+    Merged = Module:merge(SketchA, SketchB),
+    ?assertEqual(length(SampleA ++ SampleB), Module:total(Merged), #{sketch => Merged}),
+    ?assertEqual(lists:sum(SampleA ++ SampleB), Module:sum(Merged), #{sketch => Merged}),
+    ?assertEqual(
+        Module:total(Merged),
+        lists:sum([Count || #{count := Count} <- Module:buckets(Merged)]),
+        #{buckets => Module:buckets(Merged)}
     ).
 
 zero_test(Config) ->
