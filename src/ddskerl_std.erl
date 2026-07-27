@@ -44,7 +44,7 @@ start_link(Opts) ->
 %% Sentinel value representing negative infinity (log2(0) = -infinity)
 -define(NEG_INFINITY, neg_infinity).
 
--export([new/1, total/1, sum/1, insert/2, merge/2, quantile/2]).
+-export([new/1, total/1, sum/1, insert/2, merge/2, quantile/2, foldl/3, buckets/1]).
 
 -doc "Options for the DDSketch.".
 -type opts() :: #{error := float(), _ => _}.
@@ -110,18 +110,7 @@ quantile(#ddskerl_std{data = Data, gamma = Gamma, total = Total}, Quantile) when
     end.
 
 get_quantile(Data, TotalQuantile, AccumulatedRank, Data, Gamma) ->
-    %% Sort data with neg_infinity first, then numeric positions
-    SortedData = lists:sort(
-        fun({Pos1, _}, {Pos2, _}) ->
-            case {Pos1, Pos2} of
-                {?NEG_INFINITY, ?NEG_INFINITY} -> false;
-                {?NEG_INFINITY, _} -> true;
-                {_, ?NEG_INFINITY} -> false;
-                _ -> Pos1 =< Pos2
-            end
-        end,
-        maps:to_list(Data)
-    ),
+    SortedData = sorted_data(Data),
     try
         lists:foldl(
             fun({Pos, Val}, Acc) ->
@@ -142,6 +131,55 @@ get_quantile(Data, TotalQuantile, AccumulatedRank, Data, Gamma) ->
         throw:{found, Pos} ->
             result(Gamma, Pos)
     end.
+
+%% Sort data with neg_infinity first, then numeric positions
+-spec sorted_data(#{integer() | ?NEG_INFINITY => non_neg_integer()}) ->
+    [{integer() | ?NEG_INFINITY, non_neg_integer()}].
+sorted_data(Data) ->
+    lists:sort(fun compare_positions/2, maps:to_list(Data)).
+
+compare_positions({?NEG_INFINITY, _}, {?NEG_INFINITY, _}) -> false;
+compare_positions({?NEG_INFINITY, _}, _) -> true;
+compare_positions(_, {?NEG_INFINITY, _}) -> false;
+compare_positions({Pos1, _}, {Pos2, _}) -> Pos1 =< Pos2.
+
+-doc """
+Fold over all non-empty buckets of the DDSketch, in ascending order of value.
+
+For example, to export the sketch as a list of cumulative counts,
+as a Prometheus histogram would be laid out:
+```erlang
+1> {Cumulative, _} = ddskerl_std:foldl(
+1>     Sketch,
+1>     fun(#{upper := Upper, count := Count}, {Acc, Running}) ->
+1>         {[{Upper, Running + Count} | Acc], Running + Count}
+1>     end,
+1>     {[], 0}).
+2> lists:reverse(Cumulative).
+```
+""".
+-spec foldl(ddsketch(), Fun, Acc0) -> Acc1 when
+    Fun :: fun((Bucket :: ddskerl:bucket(), AccIn :: term()) -> AccOut :: term()),
+    Acc0 :: term(),
+    Acc1 :: term().
+foldl(#ddskerl_std{} = S, Fun, Acc) when is_function(Fun, 2) ->
+    lists:foldl(Fun, Acc, buckets(S)).
+
+-doc "Export all non-empty buckets of the DDSketch, in ascending order of value.".
+-spec buckets(ddsketch()) -> [ddskerl:bucket()].
+buckets(#ddskerl_std{data = Data, gamma = Gamma}) ->
+    [bucket(Gamma, Pos, Count) || {Pos, Count} <- sorted_data(Data)].
+
+-spec bucket(float(), integer() | ?NEG_INFINITY, pos_integer()) -> ddskerl:bucket().
+bucket(_Gamma, ?NEG_INFINITY, Count) ->
+    #{index => zero, lower => 0.0, upper => 0.0, count => Count};
+bucket(Gamma, Pos, Count) ->
+    #{
+        index => Pos,
+        lower => math:pow(Gamma, Pos - 1),
+        upper => math:pow(Gamma, Pos),
+        count => Count
+    }.
 
 -doc "Merge two DDSketch instances.".
 -spec merge(ddsketch(), ddsketch()) -> ddsketch().

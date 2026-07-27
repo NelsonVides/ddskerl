@@ -50,7 +50,7 @@ If we're measuring picoseconds, this would suffice to measure 107 days.
 
 -behaviour(ddskerl).
 
--export([new/1, total/1, sum/1, insert/2, merge/2, reset/1, quantile/2]).
+-export([new/1, total/1, sum/1, insert/2, merge/2, reset/1, quantile/2, foldl/3, buckets/1]).
 
 -doc "Options for the DDSketch".
 -type opts() :: #{error := float(), bound := non_neg_integer()}.
@@ -201,6 +201,66 @@ get_quantile(Ref, Gamma, TotalQuantile, AccRank, Pos, OverflowPos) ->
     Value = counters:get(Ref, NewPos),
     NewAccRank = AccRank + Value,
     get_quantile(Ref, Gamma, TotalQuantile, NewAccRank, NewPos, OverflowPos).
+
+-doc """
+Fold over all non-empty buckets of the DDSketch, in ascending order of value.
+
+Preallocated buckets that were never written to are skipped, so a sketch
+configured with a large bound is not expensive to export when sparsely used.
+The values within `[0,1]` are reported as the `underflow` bucket,
+and those above the configured bound as the `overflow` bucket.
+""".
+-spec foldl(ddsketch(), Fun, Acc0) -> Acc1 when
+    Fun :: fun((Bucket :: ddskerl:bucket(), AccIn :: term()) -> AccOut :: term()),
+    Acc0 :: term(),
+    Acc1 :: term().
+foldl(#ddskerl_counters{} = S, Fun, Acc) when is_function(Fun, 2) ->
+    lists:foldl(Fun, Acc, buckets(S)).
+
+-doc "Export all non-empty buckets of the DDSketch, in ascending order of value.".
+-spec buckets(ddsketch()) -> [ddskerl:bucket()].
+buckets(#ddskerl_counters{ref = Ref, bound = Bound, gamma = Gamma}) ->
+    Overflow =
+        case counters:get(Ref, ?C_OVERFLOW_POS(Bound)) of
+            0 -> [];
+            OverflowCount -> [overflow_bucket(Gamma, Bound, OverflowCount)]
+        end,
+    Regular = collect_buckets(Ref, Gamma, Bound, Overflow),
+    case counters:get(Ref, ?C_UNDERFLOW_POS) of
+        0 -> Regular;
+        UnderflowCount -> [underflow_bucket(UnderflowCount) | Regular]
+    end.
+
+%% Walks the buckets downwards, prepending the non-empty ones to the accumulator
+-spec collect_buckets(
+    counters:counters_ref(), float(), non_neg_integer(), [ddskerl:bucket()]
+) -> [ddskerl:bucket()].
+collect_buckets(_, _, 0, Acc) ->
+    Acc;
+collect_buckets(Ref, Gamma, Key, Acc) ->
+    NewAcc =
+        case counters:get(Ref, ?C_PREFIX + Key) of
+            0 -> Acc;
+            Count -> [bucket(Gamma, Key, Count) | Acc]
+        end,
+    collect_buckets(Ref, Gamma, Key - 1, NewAcc).
+
+-spec underflow_bucket(pos_integer()) -> ddskerl:bucket().
+underflow_bucket(Count) ->
+    #{index => underflow, lower => 0.0, upper => 1.0, count => Count}.
+
+-spec overflow_bucket(float(), non_neg_integer(), pos_integer()) -> ddskerl:bucket().
+overflow_bucket(Gamma, Bound, Count) ->
+    #{index => overflow, lower => math:pow(Gamma, Bound), upper => infinity, count => Count}.
+
+-spec bucket(float(), pos_integer(), pos_integer()) -> ddskerl:bucket().
+bucket(Gamma, Key, Count) ->
+    #{
+        index => Key,
+        lower => math:pow(Gamma, Key - 1),
+        upper => math:pow(Gamma, Key),
+        count => Count
+    }.
 
 -doc "Merge two DDSketch instances".
 -spec merge(ddsketch(), ddsketch()) -> ddsketch().

@@ -50,7 +50,9 @@ If we're measuring picoseconds, this would suffice to measure 107 days.
     insert/2, insert/3,
     merge/2, merge/4,
     reset/1, reset/2,
-    quantile/2, quantile/3
+    quantile/2, quantile/3,
+    foldl/3, foldl/4,
+    buckets/1, buckets/2
 ]).
 
 -export([
@@ -58,7 +60,9 @@ If we're measuring picoseconds, this would suffice to measure 107 days.
     sum_tuple/1,
     merge_out/2,
     merge_tuples/2,
-    quantile_tuple/2
+    quantile_tuple/2,
+    foldl_tuple/3,
+    buckets_tuple/1
 ]).
 
 -doc """
@@ -182,6 +186,94 @@ quantile(Ref, Name, Quantile) when
 ->
     [Element] = ets:lookup(Ref, Name),
     quantile_tuple(Element, Quantile).
+
+-doc """
+Fold over all non-empty buckets of the DDSketch, in ascending order of value.
+
+Preallocated buckets that were never written to are skipped, so a sketch
+configured with a large bound is not expensive to export when sparsely used.
+The values within `[0,1]` are reported as the `underflow` bucket,
+and those above the configured bound as the `overflow` bucket.
+""".
+-spec foldl(ddsketch(), Fun, Acc0) -> Acc1 when
+    Fun :: fun((Bucket :: ddskerl:bucket(), AccIn :: term()) -> AccOut :: term()),
+    Acc0 :: term(),
+    Acc1 :: term().
+foldl(#ddskerl_ets{ref = Ref, name = Name}, Fun, Acc) ->
+    foldl(Ref, Name, Fun, Acc).
+
+-doc "Fold over all non-empty buckets of the DDSketch, in ascending order of value.".
+-spec foldl(ets:tab(), term(), Fun, Acc0) -> Acc1 when
+    Fun :: fun((Bucket :: ddskerl:bucket(), AccIn :: term()) -> AccOut :: term()),
+    Acc0 :: term(),
+    Acc1 :: term().
+foldl(Ref, Name, Fun, Acc) when is_function(Fun, 2) ->
+    lists:foldl(Fun, Acc, buckets(Ref, Name)).
+
+-doc "Fold over all non-empty buckets of the underlying tuple, in ascending order of value.".
+-spec foldl_tuple(object(), Fun, Acc0) -> Acc1 when
+    Fun :: fun((Bucket :: ddskerl:bucket(), AccIn :: term()) -> AccOut :: term()),
+    Acc0 :: term(),
+    Acc1 :: term().
+foldl_tuple(Val, Fun, Acc) when is_function(Fun, 2) ->
+    lists:foldl(Fun, Acc, buckets_tuple(Val)).
+
+-doc "Export all non-empty buckets of the DDSketch, in ascending order of value.".
+-spec buckets(ddsketch()) -> [ddskerl:bucket()].
+buckets(#ddskerl_ets{ref = Ref, name = Name}) ->
+    buckets(Ref, Name).
+
+-doc "Export all non-empty buckets of the DDSketch, in ascending order of value.".
+-spec buckets(ets:tab(), term()) -> [ddskerl:bucket()].
+buckets(Ref, Name) ->
+    [Val] = ets:lookup(Ref, Name),
+    buckets_tuple(Val).
+
+-doc "Export all non-empty buckets of the underlying tuple, in ascending order of value.".
+-spec buckets_tuple(object()) -> [ddskerl:bucket()].
+buckets_tuple(Val) ->
+    Gamma = element(?E_GAMMA_POS, Val),
+    Bound = element(?E_BOUND_POS, Val),
+    Overflow =
+        case element(?E_OVERFLOW_POS, Val) of
+            0 -> [];
+            OverflowCount -> [overflow_bucket(Gamma, Bound, OverflowCount)]
+        end,
+    Regular = collect_buckets(Val, Gamma, Bound, Overflow),
+    case element(?E_UNDERFLOW_POS, Val) of
+        0 -> Regular;
+        UnderflowCount -> [underflow_bucket(UnderflowCount) | Regular]
+    end.
+
+%% Walks the buckets downwards, prepending the non-empty ones to the accumulator
+-spec collect_buckets(object(), float(), non_neg_integer(), [ddskerl:bucket()]) ->
+    [ddskerl:bucket()].
+collect_buckets(_, _, 0, Acc) ->
+    Acc;
+collect_buckets(Val, Gamma, Key, Acc) ->
+    NewAcc =
+        case element(?E_PREFIX + Key, Val) of
+            0 -> Acc;
+            Count -> [bucket(Gamma, Key, Count) | Acc]
+        end,
+    collect_buckets(Val, Gamma, Key - 1, NewAcc).
+
+-spec underflow_bucket(pos_integer()) -> ddskerl:bucket().
+underflow_bucket(Count) ->
+    #{index => underflow, lower => 0.0, upper => 1.0, count => Count}.
+
+-spec overflow_bucket(float(), non_neg_integer(), pos_integer()) -> ddskerl:bucket().
+overflow_bucket(Gamma, Bound, Count) ->
+    #{index => overflow, lower => math:pow(Gamma, Bound), upper => infinity, count => Count}.
+
+-spec bucket(float(), pos_integer(), pos_integer()) -> ddskerl:bucket().
+bucket(Gamma, Key, Count) ->
+    #{
+        index => Key,
+        lower => math:pow(Gamma, Key - 1),
+        upper => math:pow(Gamma, Key),
+        count => Count
+    }.
 
 -doc "Merge the second DDSketch instance into the first".
 -spec merge(ddsketch(), ddsketch()) -> ddsketch().

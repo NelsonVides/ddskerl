@@ -31,7 +31,7 @@ groups() ->
 
 -spec tests_ets_tuples() -> [atom()].
 tests_ets_tuples() ->
-    [merge_ets_tuples, total_ets_tuple, sum_ets_tuple, quantile_ets_tuple].
+    [merge_ets_tuples, total_ets_tuple, sum_ets_tuple, quantile_ets_tuple, buckets_ets_tuple].
 
 -spec tests() -> [atom()].
 tests() ->
@@ -41,7 +41,12 @@ tests() ->
         zero_insert_test,
         sum_test,
         merge_test,
-        prop_quantile_error_test
+        buckets_empty_test,
+        buckets_test,
+        buckets_with_zero_test,
+        buckets_foldl_test,
+        prop_quantile_error_test,
+        prop_buckets_test
     ].
 
 -spec init_per_suite(ct_suite:ct_config()) -> ct_suite:ct_config().
@@ -111,9 +116,12 @@ assert_quantile(Expected, Quantile, RelativeError, Quantile, Sketch) ->
         #{quantile => Quantile, sketch => Sketch}
     ).
 
+basic_ets_sample() ->
+    [2, 4, 6, 8, 10].
+
 prepare_basic_ets_sketch(FName, RelativeError) ->
     Bound = bucket_size(10, RelativeError),
-    estimate_sketch(ddskerl_ets, [2, 4, 6, 8, 10], FName, RelativeError, Bound).
+    estimate_sketch(ddskerl_ets, basic_ets_sample(), FName, RelativeError, Bound).
 
 total_ets_tuple(_) ->
     RelativeError = 0.02,
@@ -143,6 +151,135 @@ merge_ets_tuples(_) ->
     ets:insert(?FUNCTION_NAME, MergedSketch),
     Quantile = ddskerl_ets:quantile(Sketch1, 0.5),
     assert_merge(Quantile, RelativeError, Sketch1, Sketch2).
+
+buckets_ets_tuple(_) ->
+    RelativeError = 0.02,
+    #ddskerl_ets{name = Name} = prepare_basic_ets_sketch(?FUNCTION_NAME, RelativeError),
+    [Tuple] = ets:lookup(?FUNCTION_NAME, Name),
+    Buckets = ddskerl_ets:buckets_tuple(Tuple),
+    assert_buckets(Buckets, basic_ets_sample(), ddskerl_ets:total_tuple(Tuple)),
+    ?assertEqual(
+        lists:reverse(Buckets),
+        ddskerl_ets:foldl_tuple(Tuple, fun(B, Acc) -> [B | Acc] end, [])
+    ).
+
+buckets_empty_test(Config) ->
+    Module = proplists:get_value(module, Config),
+    RelativeError = 0.01,
+    Bound = bucket_size(10, RelativeError),
+    Sketch = estimate_sketch(Module, [], ?FUNCTION_NAME, RelativeError, Bound),
+    ?assertEqual([], Module:buckets(Sketch), #{sketch => Sketch}).
+
+buckets_test(Config) ->
+    Module = proplists:get_value(module, Config),
+    RelativeError = 0.02,
+    Sample = lists:seq(1, 100),
+    Bound = bucket_size(101, RelativeError),
+    Sketch = estimate_sketch(Module, Sample, ?FUNCTION_NAME, RelativeError, Bound),
+    assert_buckets(Module:buckets(Sketch), Sample, Module:total(Sketch)).
+
+%% Zeroes are accounted for in a bucket that no index can describe, and that
+%% bucket has to come first, as it holds the smallest values of the sketch.
+buckets_with_zero_test(Config) ->
+    Module = proplists:get_value(module, Config),
+    RelativeError = 0.02,
+    Bound = bucket_size(10, RelativeError),
+    Sample = [0, 2, 4, 0.0, 8],
+    Sketch = estimate_sketch(Module, Sample, ?FUNCTION_NAME, RelativeError, Bound),
+    Buckets = Module:buckets(Sketch),
+    ?assert(is_ordered(Buckets), #{buckets => Buckets}),
+    ?assertEqual(
+        Module:total(Sketch),
+        lists:sum([Count || #{count := Count} <- Buckets]),
+        #{buckets => Buckets}
+    ),
+    [#{index := First, count := Count} | _] = Buckets,
+    ?assert(lists:member(First, [zero, underflow]), #{buckets => Buckets}),
+    ?assertEqual(2, Count, #{buckets => Buckets}).
+
+buckets_foldl_test(Config) ->
+    Module = proplists:get_value(module, Config),
+    RelativeError = 0.02,
+    Sample = lists:seq(1, 100),
+    Bound = bucket_size(101, RelativeError),
+    Sketch = estimate_sketch(Module, Sample, ?FUNCTION_NAME, RelativeError, Bound),
+    %% Folding accumulates in the same order buckets/1 exports
+    Folded = Module:foldl(Sketch, fun(Bucket, Acc) -> [Bucket | Acc] end, []),
+    ?assertEqual(lists:reverse(Module:buckets(Sketch)), Folded),
+    %% A cumulative export, as a Prometheus histogram would be laid out,
+    %% ends up on the total count of the sketch
+    {Cumulative, Running} = Module:foldl(
+        Sketch,
+        fun(#{upper := Upper, count := Count}, {Acc, Sum}) ->
+            {[{Upper, Sum + Count} | Acc], Sum + Count}
+        end,
+        {[], 0}
+    ),
+    ?assertEqual(Module:total(Sketch), Running),
+    ?assertEqual(length(Module:buckets(Sketch)), length(Cumulative)).
+
+%% All buckets are non-empty, sorted, non-overlapping, their counts add up to the
+%% total, and every value of the sample is covered by exactly one of them.
+assert_buckets(Buckets, Sample, Total) ->
+    [
+        ?assert(0 < Count, #{bucket => Bucket})
+     || #{count := Count} = Bucket <- Buckets
+    ],
+    ?assertEqual(Total, lists:sum([Count || #{count := Count} <- Buckets]), #{buckets => Buckets}),
+    ?assert(is_ordered(Buckets), #{buckets => Buckets}),
+    [?assert(is_covered(Buckets, V), #{value => V, buckets => Buckets}) || V <- Sample].
+
+is_ordered([_]) ->
+    true;
+is_ordered([#{upper := Upper}, #{lower := Lower} = Next | Rest]) ->
+    Upper =< Lower andalso is_ordered([Next | Rest]);
+is_ordered([]) ->
+    true.
+
+%% A value belongs in exactly one bucket, unless `m:ddskerl_bound` saturated and
+%% collapsed the smallest buckets, in which case it is accounted for in the first one.
+is_covered([#{upper := FirstUpper} | _] = Buckets, Value) ->
+    Covering = [
+        B
+     || #{lower := Lower, upper := Upper} = B <- Buckets, Lower < Value, Value =< Upper
+    ],
+    case Covering of
+        [_] -> true;
+        [] -> Value =< FirstUpper;
+        _ -> false
+    end.
+
+prop_buckets_test(Config) ->
+    Module = proplists:get_value(module, Config),
+    Opts = proper_opts(10_000),
+    case proper:counterexample(prop_buckets(Module, ?FUNCTION_NAME), Opts) of
+        true ->
+            ct:comment("Property check for ~s passed", [Module]);
+        [{RelativeError, Sample} | _] ->
+            Bound = bucket_size(1 + lists:max(Sample), RelativeError),
+            Sketch = estimate_sketch(Module, Sample, ?FUNCTION_NAME, RelativeError, Bound),
+            ct:pal("-buckets: ~p~n-sample: ~p~n", [Module:buckets(Sketch), Sample]),
+            ct:fail(
+                "Failed with relative error ~p and sample size ~B, see logs for more details",
+                [RelativeError, length(Sample)]
+            )
+    end.
+
+prop_buckets(Module, T) ->
+    ?FORALL(
+        {RelativeError, Sample},
+        {relative_error(), sample(Module)},
+        begin
+            Bound = bucket_size(1 + lists:max(Sample), RelativeError),
+            Sketch = estimate_sketch(Module, Sample, T, RelativeError, Bound),
+            Buckets = Module:buckets(Sketch),
+            Counts = [Count || #{count := Count} <- Buckets],
+            lists:all(fun(Count) -> 0 < Count end, Counts) andalso
+                lists:sum(Counts) =:= Module:total(Sketch) andalso
+                is_ordered(Buckets) andalso
+                lists:all(fun(V) -> is_covered(Buckets, V) end, Sample)
+        end
+    ).
 
 merge_test(Config) ->
     Module = proplists:get_value(module, Config),
@@ -218,15 +355,7 @@ sum_test(Config) ->
 %% Run the property-based test
 prop_quantile_error_test(Config) ->
     Module = proplists:get_value(module, Config),
-    Opts = [
-        quiet,
-        noshrink,
-        long_result,
-        {start_size, 5},
-        {max_size, 1_000_000},
-        {numtests, 100},
-        {numworkers, erlang:system_info(schedulers_online)}
-    ],
+    Opts = proper_opts(1_000_000),
     case proper:counterexample(prop_quantile(Module, ?FUNCTION_NAME), Opts) of
         true ->
             ct:comment("Property check for ~s passed", [Module]);
@@ -297,6 +426,17 @@ estimate_sketch(Module, Sample, T, RelativeError, Bound) ->
 calculate_summary(Sample) ->
     Sketch = ddskerl_exact:new(),
     lists:foldl(fun(V, S) -> ddskerl_exact:insert(S, V) end, Sketch, Sample).
+
+proper_opts(MaxSize) ->
+    [
+        quiet,
+        noshrink,
+        long_result,
+        {start_size, 5},
+        {max_size, MaxSize},
+        {numtests, 100},
+        {numworkers, erlang:system_info(schedulers_online)}
+    ].
 
 pos_real() ->
     union([pos_integer(), float(0.0000001, inf)]).

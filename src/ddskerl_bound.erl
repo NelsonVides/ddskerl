@@ -47,7 +47,7 @@ start_link(Opts) ->
 %% Sentinel value representing negative infinity (log2(0) = -infinity)
 -define(NEG_INFINITY, neg_infinity).
 
--export([new/1, total/1, sum/1, insert/2, merge/2, quantile/2]).
+-export([new/1, total/1, sum/1, insert/2, merge/2, quantile/2, foldl/3, buckets/1]).
 
 -doc "Options for the DDSketch.".
 -type opts() :: #{error := float(), bound := non_neg_integer()}.
@@ -152,6 +152,56 @@ get_quantile(Data, Gamma, TotalQuantile, AccRank, {Pos, Count, NextIter}) ->
         false ->
             get_quantile(Data, Gamma, TotalQuantile, NewAccRank, gb_trees:next(NextIter))
     end.
+
+-doc """
+Fold over all non-empty buckets of the DDSketch, in ascending order of value.
+
+Note that once the sketch saturates and buckets start being collapsed,
+the `lower` bound of the smallest bucket is only a lower estimate,
+as it accumulates all the values that were collapsed into it.
+""".
+-spec foldl(ddsketch(), Fun, Acc0) -> Acc1 when
+    Fun :: fun((Bucket :: ddskerl:bucket(), AccIn :: term()) -> AccOut :: term()),
+    Acc0 :: term(),
+    Acc1 :: term().
+foldl(#ddskerl_bound{} = S, Fun, Acc) when is_function(Fun, 2) ->
+    lists:foldl(Fun, Acc, buckets(S)).
+
+-doc "Export all non-empty buckets of the DDSketch, in ascending order of value.".
+-spec buckets(ddsketch()) -> [ddskerl:bucket()].
+buckets(#ddskerl_bound{data = Data, gamma = Gamma}) ->
+    case gb_trees:next(gb_trees:iterator(Data, reversed)) of
+        none ->
+            [];
+        {?NEG_INFINITY, Count, Iter} ->
+            [bucket(Gamma, ?NEG_INFINITY, Count) | collect_buckets(Gamma, Iter, [])];
+        {Pos, Count, Iter} ->
+            collect_buckets(Gamma, Iter, [bucket(Gamma, Pos, Count)])
+    end.
+
+-spec collect_buckets(
+    float(),
+    gb_trees:iter(integer() | ?NEG_INFINITY, non_neg_integer()),
+    [ddskerl:bucket()]
+) -> [ddskerl:bucket()].
+collect_buckets(Gamma, Iter, Acc) ->
+    case gb_trees:next(Iter) of
+        none ->
+            Acc;
+        {Pos, Count, NextIter} ->
+            collect_buckets(Gamma, NextIter, [bucket(Gamma, Pos, Count) | Acc])
+    end.
+
+-spec bucket(float(), integer() | ?NEG_INFINITY, pos_integer()) -> ddskerl:bucket().
+bucket(_Gamma, ?NEG_INFINITY, Count) ->
+    #{index => zero, lower => 0.0, upper => 0.0, count => Count};
+bucket(Gamma, Pos, Count) ->
+    #{
+        index => Pos,
+        lower => math:pow(Gamma, Pos - 1),
+        upper => math:pow(Gamma, Pos),
+        count => Count
+    }.
 
 -doc "Merge two DDSketch instances.".
 -spec merge(ddsketch(), ddsketch()) -> ddsketch().

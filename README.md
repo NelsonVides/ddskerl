@@ -41,3 +41,13 @@ For all quantile operations, accepted quantiles go from `0.0` (the minimum), to 
 - `ddskerl_bound:quantile/2`,
 - `ddskerl_counters:quantile/2`,
 - `ddskerl_std:quantile/2`,
+
+For all export operations, the buckets are given in ascending order of value, and empty buckets are
+never exported, so preallocated implementations only export the buckets they actually used. Each
+bucket carries its `index`, the `count` of values it holds, and the `lower` and `upper` bounds of
+the interval it covers, which makes it directly translatable to, for example, a Prometheus
+histogram. See `t:ddskerl:bucket/0`.
+- `ddskerl_std:buckets/1` and `ddskerl_std:foldl/3`,
+- `ddskerl_bound:buckets/1` and `ddskerl_bound:foldl/3`,
+- `ddskerl_counters:buckets/1` and `ddskerl_counters:foldl/3`,
+- `ddskerl_ets:buckets/1` and `ddskerl_ets:foldl/3`,
