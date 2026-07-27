@@ -330,14 +330,6 @@ assert_merge(Quantile, RelativeError, Sketch1, Sketch2) ->
 %% walking the buckets to find a quantile.
 quantile_with_zero_test(Config) ->
     Module = proplists:get_value(module, Config),
-    quantile_with_zero_test(Config, Module).
-
-%% Only the unbounded implementations keep a bucket of their own for the zeroes;
-%% the preallocated ones account for them in the underflow bucket, together with
-%% every other value up to one.
-quantile_with_zero_test(_, Module) when ddskerl_ets =:= Module; ddskerl_counters =:= Module ->
-    {skip, no_dedicated_zero_bucket};
-quantile_with_zero_test(_, Module) ->
     RelativeError = 0.01,
     Bound = bucket_size(100, RelativeError),
     %% The median of [0, 0, 0, 8, 64] is 0, and of [0, 0, 8, 64, 64] is 8

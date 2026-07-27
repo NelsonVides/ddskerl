@@ -142,7 +142,12 @@ insert(#ddskerl_ets{ref = Ref, name = Name} = S, Val) ->
 -doc "Insert a value into the DDSketch.".
 -spec insert(ets:tab(), term(), number()) -> any().
 insert(Ref, Name, Val) when 0 =< Val, Val =< 1 ->
-    Spec = [{?E_TOTAL_POS, 1}, {?E_UNDERFLOW_POS, 1}],
+    Pos =
+        case Val =:= 0 orelse Val =:= +0.0 of
+            true -> ?E_ZERO_POS;
+            false -> ?E_UNDERFLOW_POS
+        end,
+    Spec = [{?E_TOTAL_POS, 1}, {Pos, 1}],
     update_min_max_sum(Ref, Name, Val),
     ets:update_counter(Ref, Name, Spec);
 insert(Ref, Name, Val) when
@@ -240,10 +245,19 @@ buckets_tuple(Val) ->
             OverflowCount -> [overflow_bucket(Gamma, Bound, OverflowCount)]
         end,
     Regular = collect_buckets(Val, Gamma, Bound, Overflow),
-    case element(?E_UNDERFLOW_POS, Val) of
-        0 -> Regular;
-        UnderflowCount -> [underflow_bucket(UnderflowCount) | Regular]
+    Underflow =
+        case element(?E_UNDERFLOW_POS, Val) of
+            0 -> Regular;
+            UnderflowCount -> [underflow_bucket(UnderflowCount) | Regular]
+        end,
+    case element(?E_ZERO_POS, Val) of
+        0 -> Underflow;
+        ZeroCount -> [zero_bucket(ZeroCount) | Underflow]
     end.
+
+-spec zero_bucket(pos_integer()) -> ddskerl:bucket().
+zero_bucket(Count) ->
+    #{index => zero, lower => 0.0, upper => 0.0, count => Count}.
 
 %% Walks the buckets downwards, prepending the non-empty ones to the accumulator
 -spec collect_buckets(object(), float(), non_neg_integer(), [ddskerl:bucket()]) ->
@@ -364,11 +378,17 @@ quantile_tuple(Val, Quantile) when
         0 ->
             0.0;
         Total ->
-            Gamma = element(?E_GAMMA_POS, Val),
-            AccRank = element(?E_UNDERFLOW_POS, Val),
             TotalQuantile = Total * Quantile,
-            ToIndex = tuple_size(Val) + 2,
-            get_quantile(Val, Gamma, TotalQuantile, AccRank, ?E_PREFIX, ToIndex)
+            Zeroes = element(?E_ZERO_POS, Val),
+            case TotalQuantile =< Zeroes of
+                true ->
+                    0.0;
+                false ->
+                    Gamma = element(?E_GAMMA_POS, Val),
+                    AccRank = Zeroes + element(?E_UNDERFLOW_POS, Val),
+                    ToIndex = tuple_size(Val) + 2,
+                    get_quantile(Val, Gamma, TotalQuantile, AccRank, ?E_PREFIX, ToIndex)
+            end
     end.
 
 -spec get_quantile(
@@ -387,7 +407,7 @@ get_quantile(Element, Gamma, TotalQuantile, AccRank, Pos, OverflowPos) ->
 
 -spec create_object(term(), pos_integer(), float(), float()) -> object().
 create_object(Name, Bound, Gamma, InvLogGamma) ->
-    Header = [Name, Bound, Gamma, InvLogGamma, ?E_MAX_INT, ?E_MIN_INT, 0, 0, 0, 0],
+    Header = [Name, Bound, Gamma, InvLogGamma, ?E_MAX_INT, ?E_MIN_INT, 0, 0, 0, 0, 0],
     Counters = lists:duplicate(Bound, 0),
     Object = Header ++ Counters,
     list_to_tuple(Object).

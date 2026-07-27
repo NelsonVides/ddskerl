@@ -104,8 +104,13 @@ reset(#ddskerl_counters{ref = Ref, min_max = MinMax, bound = Bound, width = Widt
 -doc "Insert a value into the DDSketch".
 -spec insert(ddsketch(), Value :: number()) -> ddsketch().
 insert(#ddskerl_counters{ref = Ref, min_max = MinMax} = S, Val) when 0 =< Val, Val =< 1 ->
+    Pos =
+        case Val =:= 0 orelse Val =:= +0.0 of
+            true -> ?C_ZERO_POS;
+            false -> ?C_UNDERFLOW_POS
+        end,
     counters:add(Ref, ?C_TOTAL_POS, 1),
-    counters:add(Ref, ?C_UNDERFLOW_POS, 1),
+    counters:add(Ref, Pos, 1),
     update_min_max_sum(Ref, MinMax, round(Val), erlang:system_info(scheduler_id)),
     S;
 insert(
@@ -181,10 +186,16 @@ quantile(#ddskerl_counters{ref = Ref, bound = Bound, gamma = Gamma}, Quantile) w
         0 ->
             0.0;
         Total ->
-            AccRank = counters:get(Ref, ?C_UNDERFLOW_POS),
             TotalQuantile = Total * Quantile,
-            ToIndex = ?C_OVERFLOW_POS(Bound) + 1,
-            get_quantile(Ref, Gamma, TotalQuantile, AccRank, ?C_PREFIX, ToIndex)
+            Zeroes = counters:get(Ref, ?C_ZERO_POS),
+            case TotalQuantile =< Zeroes of
+                true ->
+                    0.0;
+                false ->
+                    AccRank = Zeroes + counters:get(Ref, ?C_UNDERFLOW_POS),
+                    ToIndex = ?C_OVERFLOW_POS(Bound) + 1,
+                    get_quantile(Ref, Gamma, TotalQuantile, AccRank, ?C_PREFIX, ToIndex)
+            end
     end.
 
 -spec get_quantile(
@@ -230,10 +241,19 @@ buckets(#ddskerl_counters{ref = Ref, bound = Bound, gamma = Gamma}) ->
             OverflowCount -> [overflow_bucket(Gamma, Bound, OverflowCount)]
         end,
     Regular = collect_buckets(Ref, Gamma, Bound, Overflow),
-    case counters:get(Ref, ?C_UNDERFLOW_POS) of
-        0 -> Regular;
-        UnderflowCount -> [underflow_bucket(UnderflowCount) | Regular]
+    Underflow =
+        case counters:get(Ref, ?C_UNDERFLOW_POS) of
+            0 -> Regular;
+            UnderflowCount -> [underflow_bucket(UnderflowCount) | Regular]
+        end,
+    case counters:get(Ref, ?C_ZERO_POS) of
+        0 -> Underflow;
+        ZeroCount -> [zero_bucket(ZeroCount) | Underflow]
     end.
+
+-spec zero_bucket(pos_integer()) -> ddskerl:bucket().
+zero_bucket(Count) ->
+    #{index => zero, lower => 0.0, upper => 0.0, count => Count}.
 
 %% Walks the buckets downwards, prepending the non-empty ones to the accumulator
 -spec collect_buckets(

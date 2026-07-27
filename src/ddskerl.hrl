@@ -30,6 +30,7 @@
 %% Total keeps track of the total count
 %% overflow of values that escape the summary above the maximum bucket
 %% underflow of values that escape the summary below the minimum bucket
+%% zero of the values of exactly zero, which no bucket can index
 -define(E_BOUND_POS, 2).
 -define(E_GAMMA_POS, 3).
 -define(E_INV_LOG_GAMMA_POS, 4).
@@ -39,7 +40,8 @@
 -define(E_SUM_POS, 8).
 -define(E_OVERFLOW_POS, 9).
 -define(E_UNDERFLOW_POS, 10).
--define(E_PREFIX, 10).
+-define(E_ZERO_POS, 11).
+-define(E_PREFIX, 11).
 -define(E_MIN_INT, (0)).
 -define(E_MAX_INT, (1 bsl 64 - 1)).
 
@@ -49,14 +51,16 @@
 }).
 
 %% - total keeps track of the total count
+%% - zero of the values of exactly zero, which no bucket can index
 %% - underflow of values that escape the summary below the minimum bucket: the interval (0,1]
 %% - in between we find all the buckets
 %% - overflow of values that escape the summary above the maximum bucket
 -define(C_TOTAL_POS, 1).
 -define(C_SUM_POS, 2).
--define(C_UNDERFLOW_POS, 3).
--define(C_EXTRA_KEYS, 4).
--define(C_PREFIX, 3).
+-define(C_ZERO_POS, 3).
+-define(C_UNDERFLOW_POS, 4).
+-define(C_EXTRA_KEYS, 5).
+-define(C_PREFIX, 4).
 -define(C_OVERFLOW_POS(Bound), ?C_EXTRA_KEYS + Bound).
 -define(C_MAX_INT, (1 bsl 64 - 1)).
 
